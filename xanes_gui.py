@@ -142,6 +142,30 @@ class XANESGui(tk.Tk):
         super().__init__()
         self.title("XANES Control")
         self.geometry("1500x1200")  # a bit wider to fit the side panel
+
+        # Dark theme colors
+        self.bg_dark = '#2b2b2b'
+        self.bg_darker = '#1e1e1e'
+        self.fg_light = 'white'
+        self.configure(bg=self.bg_dark)
+
+        # Configure ttk styles for dark theme
+        style = ttk.Style()
+        style.theme_use('default')
+        style.configure('.', background=self.bg_dark, foreground=self.fg_light,
+                       fieldbackground=self.bg_darker, bordercolor=self.bg_darker)
+        style.configure('TFrame', background=self.bg_dark)
+        style.configure('TLabel', background=self.bg_dark, foreground=self.fg_light)
+        style.configure('TButton', background=self.bg_darker, foreground=self.fg_light)
+        style.configure('TNotebook', background=self.bg_dark, borderwidth=0)
+        style.configure('TNotebook.Tab', background=self.bg_darker, foreground=self.fg_light, padding=[10, 2])
+        style.map('TNotebook.Tab', background=[('selected', self.bg_dark)])
+        style.configure('TEntry', fieldbackground=self.bg_darker, foreground=self.fg_light, insertcolor=self.fg_light)
+        style.configure('TCheckbutton', background=self.bg_dark, foreground=self.fg_light)
+        style.configure('TRadiobutton', background=self.bg_dark, foreground=self.fg_light)
+        style.configure('TLabelframe', background=self.bg_dark, foreground=self.fg_light)
+        style.configure('TLabelframe.Label', background=self.bg_dark, foreground=self.fg_light)
+
         self._log_q = queue.Queue()
         self._proc = None
         self._proc_pgid = None
@@ -174,11 +198,11 @@ class XANESGui(tk.Tk):
     # ---------- Scan tab ----------
     def _build_scan_tab(self):
         # Top split: plot (left) + side panel (right)
-        top = tk.Frame(self.tab_scan)
+        top = tk.Frame(self.tab_scan, bg=self.bg_dark)
         top.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         # LEFT: plot
-        plot_frame = tk.Frame(top, padx=8, pady=8)
+        plot_frame = tk.Frame(top, padx=8, pady=8, bg=self.bg_dark)
         plot_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.fig = Figure(figsize=(5, 3.5), dpi=100, facecolor='#2b2b2b')
@@ -192,13 +216,13 @@ class XANESGui(tk.Tk):
         self._reset_plot_axes()
 
         # RIGHT: side panel with edges & utilities
-        side = tk.Frame(top, padx=10, pady=8)
+        side = tk.Frame(top, padx=10, pady=8, bg=self.bg_dark)
         side.pack(side=tk.RIGHT, fill=tk.Y)
 
         ttk.Label(side, text="Edges (6–16 keV)").pack(anchor="w", pady=(0,6))
 
         # Curve source selection
-        curve_source_frame = tk.LabelFrame(side, text="Reference Curves", padx=5, pady=5)
+        curve_source_frame = ttk.LabelFrame(side, text="Reference Curves", padding=(5, 5))
         curve_source_frame.pack(fill=tk.X, pady=(0,6))
         self.curve_source = tk.StringVar(value="calibrated")
         ttk.Radiobutton(curve_source_frame, text="Calibrated (measured)",
@@ -207,15 +231,16 @@ class XANESGui(tk.Tk):
                        variable=self.curve_source, value="simulated").pack(anchor="w")
 
         # Search/filter
-        search_frame = tk.Frame(side)
+        search_frame = tk.Frame(side, bg=self.bg_dark)
         search_frame.pack(fill=tk.X, pady=(0,6))
-        tk.Label(search_frame, text="Filter: ").pack(side=tk.LEFT)
+        tk.Label(search_frame, text="Filter: ", bg=self.bg_dark, fg=self.fg_light).pack(side=tk.LEFT)
         self.edge_filter = ttk.Entry(search_frame, width=12)
         self.edge_filter.pack(side=tk.LEFT, padx=(2,0), fill=tk.X, expand=True)
         self.edge_filter.bind("<KeyRelease>", self._filter_edges)
 
         # Listbox
-        self.edge_list = tk.Listbox(side, height=18, exportselection=False)
+        self.edge_list = tk.Listbox(side, height=18, exportselection=False,
+                                    bg=self.bg_darker, fg=self.fg_light, selectbackground='#4a4a4a')
         self._all_edge_labels = [f"{el:>2s}  {E:>6.3f} keV" for el, E in K_EDGES_6_16_KEV]
         for s in self._all_edge_labels:
             self.edge_list.insert(tk.END, s)
@@ -229,10 +254,10 @@ class XANESGui(tk.Tk):
         ttk.Label(side, textvariable=self.sel_el_var).pack(anchor="w")
         ttk.Label(side, textvariable=self.sel_e_var).pack(anchor="w")
 
-        cfg = tk.LabelFrame(side, text="Auto-fill scan around edge")
+        cfg = ttk.LabelFrame(side, text="Auto-fill scan around edge", padding=(4, 4))
         cfg.pack(fill=tk.X, pady=(8,6))
-        tk.Label(cfg, text="± window (keV):").grid(row=0, column=0, sticky="e", padx=4, pady=2)
-        tk.Label(cfg, text="# points:").grid(row=1, column=0, sticky="e", padx=4, pady=2)
+        tk.Label(cfg, text="± window (keV):", bg=self.bg_dark, fg=self.fg_light).grid(row=0, column=0, sticky="e", padx=4, pady=2)
+        tk.Label(cfg, text="# points:", bg=self.bg_dark, fg=self.fg_light).grid(row=1, column=0, sticky="e", padx=4, pady=2)
         self.win_var  = tk.StringVar(value="0.20")
         self.npts_var = tk.StringVar(value="121")
         ttk.Entry(cfg, textvariable=self.win_var, width=8).grid(row=0, column=1, sticky="w", padx=4, pady=2)
@@ -252,7 +277,7 @@ class XANESGui(tk.Tk):
 
         self.energy_method = tk.StringVar(value="manual")
 
-        method_row1 = tk.Frame(method_frame)
+        method_row1 = tk.Frame(method_frame, bg=self.bg_dark)
         method_row1.pack(fill=tk.X, pady=2)
         ttk.Radiobutton(method_row1, text="Manual (Start/End/Step)",
                        variable=self.energy_method, value="manual",
@@ -267,15 +292,15 @@ class XANESGui(tk.Tk):
                        command=self._on_method_change).pack(side=tk.LEFT, padx=5)
 
         # Fields row - Manual method
-        self.manual_frame = tk.Frame(self.tab_scan, padx=8, pady=4)
+        self.manual_frame = tk.Frame(self.tab_scan, padx=8, pady=4, bg=self.bg_dark)
         self.manual_frame.pack(side=tk.TOP, fill=tk.X)
-        tk.Label(self.manual_frame, text="Start energy (keV):").pack(side=tk.LEFT)
+        tk.Label(self.manual_frame, text="Start energy (keV):", bg=self.bg_dark, fg=self.fg_light).pack(side=tk.LEFT)
         self.e_start = ttk.Entry(self.manual_frame, width=10); self.e_start.pack(side=tk.LEFT, padx=(4,12))
-        tk.Label(self.manual_frame, text="End energy (keV):").pack(side=tk.LEFT)
+        tk.Label(self.manual_frame, text="End energy (keV):", bg=self.bg_dark, fg=self.fg_light).pack(side=tk.LEFT)
         self.e_end = ttk.Entry(self.manual_frame, width=10); self.e_end.pack(side=tk.LEFT, padx=(4,12))
-        tk.Label(self.manual_frame, text="Step (eV):").pack(side=tk.LEFT)
+        tk.Label(self.manual_frame, text="Step (eV):", bg=self.bg_dark, fg=self.fg_light).pack(side=tk.LEFT)
         self.e_step = ttk.Entry(self.manual_frame, width=8); self.e_step.pack(side=tk.LEFT, padx=(4,12))
-        self.manual_info = tk.Label(self.manual_frame, text="", fg="blue")
+        self.manual_info = tk.Label(self.manual_frame, text="", fg="cyan", bg=self.bg_dark)
         self.manual_info.pack(side=tk.LEFT, padx=5)
 
         # Bind to update points calculation
@@ -284,26 +309,27 @@ class XANESGui(tk.Tk):
         self.e_step.bind("<KeyRelease>", self._update_manual_points)
 
         # Plot selection frame
-        self.plot_select_frame = tk.Frame(self.tab_scan, padx=8, pady=4)
-        tk.Label(self.plot_select_frame, text="Click 'Enable Selection' then drag on the plot to select energy range").pack(side=tk.LEFT, padx=5)
+        self.plot_select_frame = tk.Frame(self.tab_scan, padx=8, pady=4, bg=self.bg_dark)
+        tk.Label(self.plot_select_frame, text="Click 'Enable Selection' then drag on the plot to select energy range",
+                bg=self.bg_dark, fg=self.fg_light).pack(side=tk.LEFT, padx=5)
         self.btn_enable_select = ttk.Button(self.plot_select_frame, text="Enable Selection",
                                            command=self._enable_plot_selection)
         self.btn_enable_select.pack(side=tk.LEFT, padx=5)
-        tk.Label(self.plot_select_frame, text="# Points:").pack(side=tk.LEFT, padx=(15,2))
+        tk.Label(self.plot_select_frame, text="# Points:", bg=self.bg_dark, fg=self.fg_light).pack(side=tk.LEFT, padx=(15,2))
         self.plot_npts = ttk.Entry(self.plot_select_frame, width=8)
         self.plot_npts.insert(0, "121")
         self.plot_npts.pack(side=tk.LEFT, padx=(4,5))
-        self.plot_range_label = tk.Label(self.plot_select_frame, text="Range: Not selected", fg="blue")
+        self.plot_range_label = tk.Label(self.plot_select_frame, text="Range: Not selected", fg="cyan", bg=self.bg_dark)
         self.plot_range_label.pack(side=tk.LEFT, padx=5)
 
         # Custom energy frame
-        self.custom_frame = tk.Frame(self.tab_scan, padx=8, pady=4)
-        tk.Label(self.custom_frame, text="Energy table (one value per row):").pack(side=tk.LEFT, padx=5)
+        self.custom_frame = tk.Frame(self.tab_scan, padx=8, pady=4, bg=self.bg_dark)
+        tk.Label(self.custom_frame, text="Energy table (one value per row):", bg=self.bg_dark, fg=self.fg_light).pack(side=tk.LEFT, padx=5)
         ttk.Button(self.custom_frame, text="Load from CSV/TXT",
                   command=self._load_custom_energies).pack(side=tk.LEFT, padx=5)
         ttk.Button(self.custom_frame, text="Edit Table",
                   command=self._edit_energy_table).pack(side=tk.LEFT, padx=5)
-        self.custom_info_label = tk.Label(self.custom_frame, text="No custom energies loaded", fg="blue")
+        self.custom_info_label = tk.Label(self.custom_frame, text="No custom energies loaded", fg="cyan", bg=self.bg_dark)
         self.custom_info_label.pack(side=tk.LEFT, padx=5)
 
         # Progress
@@ -311,7 +337,7 @@ class XANESGui(tk.Tk):
         self.progress.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0,8))
 
         # Bottom buttons bar
-        btnbar = tk.Frame(self.tab_scan, padx=8, pady=10)
+        btnbar = tk.Frame(self.tab_scan, padx=8, pady=10, bg=self.bg_dark)
         btnbar.pack(side=tk.BOTTOM, fill=tk.X)
         btn_w = 18
         self.btn_cal = tk.Button(btnbar, text="Calibrate", bg="#FFA500", fg="black",
@@ -325,10 +351,10 @@ class XANESGui(tk.Tk):
         self.btn_stop.pack(side=tk.LEFT, padx=6)
 
         # Log
-        log_frame = tk.Frame(self.tab_scan, padx=8, pady=4)
+        log_frame = tk.Frame(self.tab_scan, padx=8, pady=4, bg=self.bg_dark)
         log_frame.pack(side=tk.TOP, fill=tk.BOTH)
-        tk.Label(log_frame, text="Log:").pack(anchor="w")
-        self.txt = tk.Text(log_frame, height=8)
+        tk.Label(log_frame, text="Log:", bg=self.bg_dark, fg=self.fg_light).pack(anchor="w")
+        self.txt = tk.Text(log_frame, height=8, bg=self.bg_darker, fg=self.fg_light, insertbackground=self.fg_light)
         self.txt.pack(fill=tk.BOTH, expand=True)
 
     # ---------- PV Settings tab ----------
@@ -950,10 +976,6 @@ class XANESGui(tk.Tk):
                     epics_put(DEFAULTS["xanes_step_pv"], avg_step)
 
                 self._log(f"Using {method} method: {len(energies)} points from {energies[0]:.4f} to {energies[-1]:.4f} keV")
-                messagebox.showinfo("Custom Energies",
-                    f"Custom energy array saved to:\n{outfile}\n\n"
-                    f"IMPORTANT: Your xanes_energy.py script must be modified to use this file "
-                    f"instead of calculating energies from start/end/step PVs.")
         except Exception as ex:
             self._log(f"WARNING: could not prime XANES PVs: {ex}")
 
