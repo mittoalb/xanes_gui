@@ -359,8 +359,12 @@ class XANESGui(tk.Tk):
 
     # ---------- PV Settings tab ----------
     def _build_pv_tab(self):
-        pvf = tk.LabelFrame(self.tab_pv, text="EPICS / PVA Configuration", padx=10, pady=10)
-        pvf.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
+        # Wrapper frame with explicit dark background
+        wrapper = tk.Frame(self.tab_pv, bg=self.bg_dark)
+        wrapper.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        pvf = ttk.LabelFrame(wrapper, text="EPICS / PVA Configuration", padding=(10, 10))
+        pvf.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         self.detector_var = tk.StringVar(value=DEFAULTS["detector_pv"])
         self.cam_acq_var = tk.StringVar(value=DEFAULTS["cam_acquire_pv"])
@@ -390,17 +394,17 @@ class XANESGui(tk.Tk):
         for r, (lab, var, width, kind) in enumerate(rows):
             ttk.Label(pvf, text=lab).grid(row=r, column=0, sticky="e", padx=4, pady=3)
             if kind == "browse_dir_calib":
-                rowf = tk.Frame(pvf)
+                rowf = tk.Frame(pvf, bg=self.bg_dark)
                 rowf.grid(row=r, column=1, sticky="we", padx=4, pady=3)
                 e = ttk.Entry(rowf, textvariable=var, width=width)
                 e.pack(side=tk.LEFT, fill=tk.X, expand=True)
-                ttk.Button(rowf, text="Browse…", command=lambda: self._browse_curve_dir(self.curve_dir_calibrated_var, "calibrated")).pack(side=tk.LEFT, padx=(6,0))
+                ttk.Button(rowf, text="Browse…", command=lambda v=self.curve_dir_calibrated_var: self._browse_curve_dir(v, "calibrated")).pack(side=tk.LEFT, padx=(6,0))
             elif kind == "browse_dir_sim":
-                rowf = tk.Frame(pvf)
+                rowf = tk.Frame(pvf, bg=self.bg_dark)
                 rowf.grid(row=r, column=1, sticky="we", padx=4, pady=3)
                 e = ttk.Entry(rowf, textvariable=var, width=width)
                 e.pack(side=tk.LEFT, fill=tk.X, expand=True)
-                ttk.Button(rowf, text="Browse…", command=lambda: self._browse_curve_dir(self.curve_dir_simulated_var, "simulated")).pack(side=tk.LEFT, padx=(6,0))
+                ttk.Button(rowf, text="Browse…", command=lambda v=self.curve_dir_simulated_var: self._browse_curve_dir(v, "simulated")).pack(side=tk.LEFT, padx=(6,0))
             elif kind == "ext_combo":
                 cb = ttk.Combobox(pvf, textvariable=var, values=[".npy", ".csv"], width=8, state="readonly")
                 cb.grid(row=r, column=1, sticky="w", padx=4, pady=3)
