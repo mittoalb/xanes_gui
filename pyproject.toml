@@ -1,0 +1,130 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xanes-gui"
+version = "1.0.0"
+description = "A PyQt5-based graphical interface for XANES spectroscopy at APS Beamline 32-ID"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "APS Beamline 32-ID", email = "32id@aps.anl.gov"}
+]
+maintainers = [
+    {name = "APS Beamline 32-ID", email = "32id@aps.anl.gov"}
+]
+keywords = [
+    "xanes",
+    "spectroscopy",
+    "xray",
+    "synchrotron",
+    "epics",
+    "beamline",
+    "aps",
+    "x-ray absorption"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: X11 Applications :: Qt",
+    "Framework :: Qt",
+]
+
+dependencies = [
+    "PyQt5>=5.15.0",
+    "numpy>=1.20.0",
+    "pyqtgraph>=0.12.0",
+    "pyepics>=3.5.0",
+    "pvaccess>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-qt>=4.0",
+    "black>=22.0",
+    "flake8>=4.0",
+    "mypy>=0.950",
+]
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/xanes-gui"
+Documentation = "https://xanes-gui.readthedocs.io"
+Repository = "https://github.com/yourusername/xanes-gui"
+"Bug Tracker" = "https://github.com/yourusername/xanes-gui/issues"
+Changelog = "https://github.com/yourusername/xanes-gui/blob/main/CHANGELOG.md"
+
+[project.scripts]
+xanes-gui = "xanes_gui:main"
+
+[tool.setuptools]
+packages = ["xanes_gui"]
+
+[tool.setuptools.package-data]
+xanes_gui = ["*.json", "*.npy"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+]
