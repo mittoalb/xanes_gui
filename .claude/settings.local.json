@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(python3:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(timeout 2 python3:*)",
+      "Bash(conda install:*)",
+      "Bash(timeout 3 python3:*)"
     ],
     "deny": [],
     "ask": []
