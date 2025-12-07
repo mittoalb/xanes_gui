@@ -1,0 +1,558 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Guide &mdash; XANES GUI 1.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=8d563738"></script>
+      <script src="_static/doctools.js?v=9a2dae69"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Features" href="features.html" />
+    <link rel="prev" title="Quick Start Guide" href="quickstart.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            XANES GUI
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start Guide</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">User Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#interface-overview">Interface Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#scan-tab-layout">Scan Tab Layout</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#energy-range-methods">Energy Range Methods</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#method-1-manual-start-end-step">Method 1: Manual (Start/End/Step)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#method-2-select-range-on-plot">Method 2: Select Range on Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#method-3-import-custom-energy-array">Method 3: Import Custom Energy Array</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#reference-curves">Reference Curves</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#curve-types">Curve Types</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#loading-curves">Loading Curves</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#edge-shift-calculation">Edge Shift Calculation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#overlay-mode">Overlay Mode</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#calibration-scans">Calibration Scans</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#purpose">Purpose</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#procedure">Procedure</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#what-happens-during-calibration">What Happens During Calibration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#abort-calibration">Abort Calibration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#xanes-data-collection">XANES Data Collection</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#start-script-workflow">Start Script Workflow</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#monitoring">Monitoring</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#stop-operation">Stop Operation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#pv-settings-configuration">PV Settings Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#required-pvs">Required PVs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#curve-directories">Curve Directories</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#file-formats">File Formats</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#advanced-features">Advanced Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#custom-energy-arrays">Custom Energy Arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#edge-list-filtering">Edge List Filtering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#log-window">Log Window</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#troubleshooting-tips">Troubleshooting Tips</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#calibration-not-starting">Calibration Not Starting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#plot-not-updating">Plot Not Updating</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#energy-not-changing">Energy Not Changing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html">Changelog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="license.html">License</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">XANES GUI</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">User Guide</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/user_guide.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="user-guide">
+<h1>User Guide<a class="headerlink" href="#user-guide" title="Link to this heading"></a></h1>
+<p>This comprehensive guide covers all features and functionality of the XANES GUI.</p>
+<section id="interface-overview">
+<h2>Interface Overview<a class="headerlink" href="#interface-overview" title="Link to this heading"></a></h2>
+<p>The XANES GUI consists of two main tabs:</p>
+<ol class="arabic simple">
+<li><p><strong>Scan Tab</strong>: Main interface for calibration and data collection</p></li>
+<li><p><strong>PV Settings Tab</strong>: EPICS PV configuration</p></li>
+</ol>
+<section id="scan-tab-layout">
+<h3>Scan Tab Layout<a class="headerlink" href="#scan-tab-layout" title="Link to this heading"></a></h3>
+<p><strong>Plot Area (Left)</strong></p>
+<p>The main plotting region displays:</p>
+<ul class="simple">
+<li><p>Reference curves (calibrated and simulated)</p></li>
+<li><p>Calibration scan data (live updates)</p></li>
+<li><p>K-edge markers</p></li>
+<li><p>Interactive zoom and pan controls</p></li>
+</ul>
+<p><strong>Control Panel (Right)</strong></p>
+<ul class="simple">
+<li><p>Edge selection list with filter</p></li>
+<li><p>Curve source selector (Calibrated/Simulated)</p></li>
+<li><p>Auto-fill scan configuration</p></li>
+<li><p>Manual curve loading</p></li>
+</ul>
+<p><strong>Energy Configuration (Center)</strong></p>
+<p>Three energy range definition methods with mode-specific controls</p>
+<p><strong>Action Buttons (Bottom)</strong></p>
+<ul class="simple">
+<li><p>Orange <strong>Calibrate</strong>: Perform calibration scan</p></li>
+<li><p>Green <strong>Start XANES</strong>: Launch full acquisition</p></li>
+<li><p>Red <strong>Stop</strong>: Abort current operation</p></li>
+</ul>
+</section>
+</section>
+<section id="energy-range-methods">
+<h2>Energy Range Methods<a class="headerlink" href="#energy-range-methods" title="Link to this heading"></a></h2>
+<p>The GUI offers three methods to define energy ranges:</p>
+<section id="method-1-manual-start-end-step">
+<h3>Method 1: Manual (Start/End/Step)<a class="headerlink" href="#method-1-manual-start-end-step" title="Link to this heading"></a></h3>
+<p><strong>When to use</strong>: Standard scans with uniform energy spacing</p>
+<p><strong>Configuration</strong>:</p>
+<ul class="simple">
+<li><p><strong>Start energy (keV)</strong>: Lower bound of energy range</p></li>
+<li><p><strong>End energy (keV)</strong>: Upper bound of energy range</p></li>
+<li><p><strong>Step (eV)</strong>: Energy increment (minimum 1 eV recommended)</p></li>
+</ul>
+<p><strong>Auto-calculation</strong>: The GUI displays total number of points</p>
+<p>Example: Fe K-edge scan</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Start: 6.912 keV
+End: 7.312 keV
+Step: 1.0 eV
+→ 401 points
+</pre></div>
+</div>
+<p><strong>Tips</strong>:</p>
+<ul class="simple">
+<li><p>Use <strong>Apply to fields</strong> button to auto-fill from selected edge</p></li>
+<li><p>Step &lt; 1 eV shows warning but is allowed</p></li>
+<li><p>Points calculated as: <code class="docutils literal notranslate"><span class="pre">(end</span> <span class="pre">-</span> <span class="pre">start)</span> <span class="pre">*</span> <span class="pre">1000</span> <span class="pre">/</span> <span class="pre">step</span> <span class="pre">+</span> <span class="pre">1</span></code></p></li>
+</ul>
+</section>
+<section id="method-2-select-range-on-plot">
+<h3>Method 2: Select Range on Plot<a class="headerlink" href="#method-2-select-range-on-plot" title="Link to this heading"></a></h3>
+<p><strong>When to use</strong>: Visual selection based on reference curves</p>
+<p><strong>Usage</strong>:</p>
+<ol class="arabic simple">
+<li><p>Load a reference curve for the element</p></li>
+<li><p>Select <strong>Select range on plot</strong> method</p></li>
+<li><p>Click <strong>Enable Selection</strong></p></li>
+<li><p>Drag the red region to desired energy range</p></li>
+<li><p>The range and suggested points update automatically</p></li>
+</ol>
+<p><strong>Features</strong>:</p>
+<ul class="simple">
+<li><p>Visual feedback on the plot</p></li>
+<li><p>Auto-suggests points for 1 eV step</p></li>
+<li><p>Manually adjust # Points if needed</p></li>
+<li><p>Click <strong>Disable Selection</strong> to remove region</p></li>
+</ul>
+</section>
+<section id="method-3-import-custom-energy-array">
+<h3>Method 3: Import Custom Energy Array<a class="headerlink" href="#method-3-import-custom-energy-array" title="Link to this heading"></a></h3>
+<p><strong>When to use</strong>: Non-uniform energy spacing or pre-defined arrays</p>
+<p><strong>Loading from file</strong>:</p>
+<ol class="arabic simple">
+<li><p>Select <strong>Import custom energy array</strong></p></li>
+<li><p>Click <strong>Load from CSV/TXT</strong></p></li>
+<li><p>Choose file with energy values (one per line, in keV)</p></li>
+</ol>
+<p><strong>Manual entry</strong>:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>Edit Table</strong></p></li>
+<li><p>Enter energy values (one per line)</p></li>
+<li><p>Click <strong>Save</strong></p></li>
+</ol>
+<p><strong>File format</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>6.539
+6.540
+6.542
+6.545
+6.550
+</pre></div>
+</div>
+</section>
+</section>
+<section id="reference-curves">
+<h2>Reference Curves<a class="headerlink" href="#reference-curves" title="Link to this heading"></a></h2>
+<section id="curve-types">
+<h3>Curve Types<a class="headerlink" href="#curve-types" title="Link to this heading"></a></h3>
+<p><strong>Calibrated (Measured)</strong></p>
+<ul class="simple">
+<li><p>Experimental data from calibration scans</p></li>
+<li><p>Shows measured edge shifts in eV</p></li>
+<li><p>Stored in <code class="docutils literal notranslate"><span class="pre">Calibrated/</span></code> folder</p></li>
+<li><p>Naming: <code class="docutils literal notranslate"><span class="pre">Element_calibrated.npy</span></code> or <code class="docutils literal notranslate"><span class="pre">Element.npy</span></code></p></li>
+</ul>
+<p><strong>Simulated</strong></p>
+<ul class="simple">
+<li><p>Theoretical absorption spectra</p></li>
+<li><p>No edge shift calculation</p></li>
+<li><p>Stored in <code class="docutils literal notranslate"><span class="pre">Curves/</span></code> folder</p></li>
+<li><p>Naming: <code class="docutils literal notranslate"><span class="pre">Element.npy</span></code></p></li>
+</ul>
+</section>
+<section id="loading-curves">
+<h3>Loading Curves<a class="headerlink" href="#loading-curves" title="Link to this heading"></a></h3>
+<p><strong>Automatic loading</strong>:</p>
+<ol class="arabic simple">
+<li><p>Select curve source (Calibrated/Simulated)</p></li>
+<li><p>Click element in edge list</p></li>
+<li><p>Curve loads and plots automatically</p></li>
+<li><p>Edge marker (orange dashed line) appears</p></li>
+</ol>
+<p><strong>Manual loading</strong>:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>Load curve (CSV/NPY)</strong></p></li>
+<li><p>Select file</p></li>
+<li><p>Curve plots with filename as label</p></li>
+</ol>
+</section>
+<section id="edge-shift-calculation">
+<h3>Edge Shift Calculation<a class="headerlink" href="#edge-shift-calculation" title="Link to this heading"></a></h3>
+<p>For calibrated curves:</p>
+<ol class="arabic simple">
+<li><p>Curve is normalized (min-max scaling)</p></li>
+<li><p>Derivative is calculated</p></li>
+<li><p>Maximum derivative position = measured edge</p></li>
+<li><p>Shift = (measured - theoretical) * 1000 eV</p></li>
+</ol>
+<p>Displayed as: <code class="docutils literal notranslate"><span class="pre">Fe</span> <span class="pre">(calibrated)</span> <span class="pre">[Δ=+2.3eV]</span></code></p>
+</section>
+<section id="overlay-mode">
+<h3>Overlay Mode<a class="headerlink" href="#overlay-mode" title="Link to this heading"></a></h3>
+<p>Check <strong>Overlay on existing plot</strong> to:</p>
+<ul class="simple">
+<li><p>Compare multiple elements</p></li>
+<li><p>Keep calibration data while loading references</p></li>
+<li><p>Build composite plots</p></li>
+</ul>
+<p>Uncheck to clear plot before loading new curves.</p>
+</section>
+</section>
+<section id="calibration-scans">
+<h2>Calibration Scans<a class="headerlink" href="#calibration-scans" title="Link to this heading"></a></h2>
+<section id="purpose">
+<h3>Purpose<a class="headerlink" href="#purpose" title="Link to this heading"></a></h3>
+<p>Calibration scans measure:</p>
+<ul class="simple">
+<li><p>Detector response vs. energy</p></li>
+<li><p>Actual K-edge positions</p></li>
+<li><p>System calibration validation</p></li>
+</ul>
+</section>
+<section id="procedure">
+<h3>Procedure<a class="headerlink" href="#procedure" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p><strong>Configure energy range</strong> using any method</p></li>
+<li><p><strong>Click Calibrate button</strong></p></li>
+<li><p><strong>Monitor progress</strong>:</p>
+<ul class="simple">
+<li><p>Progress bar fills as scan proceeds</p></li>
+<li><p>Log shows energy set confirmations and detector sums</p></li>
+<li><p>Plot updates in real-time with green markers</p></li>
+</ul>
+</li>
+<li><p><strong>Completion</strong>: Buttons re-enable, data available for review</p></li>
+</ol>
+</section>
+<section id="what-happens-during-calibration">
+<h3>What Happens During Calibration<a class="headerlink" href="#what-happens-during-calibration" title="Link to this heading"></a></h3>
+<p>For each energy point:</p>
+<ol class="arabic simple">
+<li><p>Set energy via <code class="docutils literal notranslate"><span class="pre">EnergySet</span></code> PV</p></li>
+<li><p>Wait for readback confirmation (if configured)</p></li>
+<li><p>Apply settling time</p></li>
+<li><p>Trigger detector acquisition</p></li>
+<li><p>Wait for acquisition complete</p></li>
+<li><p>Read detector image via PVAccess</p></li>
+<li><p>Sum all pixels</p></li>
+<li><p>Log result and update plot</p></li>
+</ol>
+</section>
+<section id="abort-calibration">
+<h3>Abort Calibration<a class="headerlink" href="#abort-calibration" title="Link to this heading"></a></h3>
+<p>Click <strong>Stop</strong> button:</p>
+<ul class="simple">
+<li><p>Aborts scan after current point</p></li>
+<li><p>Partial data retained and plotted</p></li>
+<li><p>Safety PVs triggered (EPID, shaker)</p></li>
+</ul>
+</section>
+</section>
+<section id="xanes-data-collection">
+<h2>XANES Data Collection<a class="headerlink" href="#xanes-data-collection" title="Link to this heading"></a></h2>
+<section id="start-script-workflow">
+<h3>Start Script Workflow<a class="headerlink" href="#start-script-workflow" title="Link to this heading"></a></h3>
+<p>The <strong>Start XANES</strong> button:</p>
+<ol class="arabic simple">
+<li><p>Validates energy configuration</p></li>
+<li><p>Sets EPICS PVs:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">XanesStart</span></code>: Start energy</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">XanesEnd</span></code>: End energy</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">XanesStep</span></code>: Step size</p></li>
+<li><p>Or saves custom energy array to <code class="docutils literal notranslate"><span class="pre">~/energies.npy</span></code></p></li>
+</ul>
+</li>
+<li><p>Launches bash script (configured in PV Settings)</p></li>
+<li><p>Script typically:</p>
+<ul class="simple">
+<li><p>SSHes to acquisition computer</p></li>
+<li><p>Runs tomoscan energy command</p></li>
+<li><p>Performs full XANES acquisition</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="monitoring">
+<h3>Monitoring<a class="headerlink" href="#monitoring" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Script output streams to log window</p></li>
+<li><p>Progress shown as script executes</p></li>
+<li><p>No live plot updates (data saved externally)</p></li>
+</ul>
+</section>
+<section id="stop-operation">
+<h3>Stop Operation<a class="headerlink" href="#stop-operation" title="Link to this heading"></a></h3>
+<p>Click <strong>Stop</strong>:</p>
+<ul class="simple">
+<li><p>Terminates script process group</p></li>
+<li><p>Sends safety PV commands</p></li>
+<li><p>Resets button states</p></li>
+</ul>
+</section>
+</section>
+<section id="pv-settings-configuration">
+<h2>PV Settings Configuration<a class="headerlink" href="#pv-settings-configuration" title="Link to this heading"></a></h2>
+<section id="required-pvs">
+<h3>Required PVs<a class="headerlink" href="#required-pvs" title="Link to this heading"></a></h3>
+<p><strong>Detector &amp; Acquisition</strong>:</p>
+<ul class="simple">
+<li><p><strong>Detector PVA (NTNDArray)</strong>: <code class="docutils literal notranslate"><span class="pre">32idbSP1:Pva1:Image</span></code></p></li>
+<li><p><strong>cam:Acquire PV</strong>: <code class="docutils literal notranslate"><span class="pre">32idbSP1:cam1:Acquire</span></code></p></li>
+<li><p><strong>cam:Acquire_RBV PV</strong>: <code class="docutils literal notranslate"><span class="pre">32idbSP1:cam1:Acquire_RBV</span></code></p></li>
+</ul>
+<p><strong>Energy Control</strong>:</p>
+<ul class="simple">
+<li><p><strong>Energy set PV</strong>: <code class="docutils literal notranslate"><span class="pre">32id:TXMOptics:EnergySet</span></code></p></li>
+<li><p><strong>Energy RB PV (opt)</strong>: <code class="docutils literal notranslate"><span class="pre">32id:TXMOptics:Energy_RBV</span></code></p></li>
+<li><p><strong>Settle (s)</strong>: <code class="docutils literal notranslate"><span class="pre">0.15</span></code> (settle time after energy change)</p></li>
+</ul>
+<p><strong>Scan Parameters</strong>:</p>
+<ul class="simple">
+<li><p><strong>Start .sh path</strong>: <code class="docutils literal notranslate"><span class="pre">/path/to/xanes_start.sh</span></code></p></li>
+</ul>
+</section>
+<section id="curve-directories">
+<h3>Curve Directories<a class="headerlink" href="#curve-directories" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Calibrated curves folder</strong>: <code class="docutils literal notranslate"><span class="pre">/path/to/Calibrated/</span></code></p></li>
+<li><p><strong>Simulated curves folder</strong>: <code class="docutils literal notranslate"><span class="pre">/path/to/Curves/</span></code></p></li>
+<li><p><strong>Ref curve extension</strong>: <code class="docutils literal notranslate"><span class="pre">.npy</span></code> or <code class="docutils literal notranslate"><span class="pre">.csv</span></code></p></li>
+</ul>
+<p>Browse buttons available for easy selection.</p>
+</section>
+<section id="file-formats">
+<h3>File Formats<a class="headerlink" href="#file-formats" title="Link to this heading"></a></h3>
+<p><strong>NPY files (preferred)</strong>:</p>
+<p>Binary numpy arrays, 2xN or Nx2 shape, or text format with 2 columns</p>
+<p><strong>CSV files</strong>:</p>
+<p>Comma or space-separated, first column = energy (keV), second = intensity</p>
+</section>
+</section>
+<section id="advanced-features">
+<h2>Advanced Features<a class="headerlink" href="#advanced-features" title="Link to this heading"></a></h2>
+<section id="custom-energy-arrays">
+<h3>Custom Energy Arrays<a class="headerlink" href="#custom-energy-arrays" title="Link to this heading"></a></h3>
+<p>For specialized scans:</p>
+<ol class="arabic simple">
+<li><p>Pre-edge region: Fine step (0.5 eV)</p></li>
+<li><p>Edge region: Very fine step (0.2 eV)</p></li>
+<li><p>Post-edge: Coarse step (2 eV)</p></li>
+</ol>
+<p>Create file:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>6.500
+6.505
+6.510
+...
+6.535
+6.537
+6.539
+...
+6.600
+6.602
+6.604
+</pre></div>
+</div>
+</section>
+<section id="edge-list-filtering">
+<h3>Edge List Filtering<a class="headerlink" href="#edge-list-filtering" title="Link to this heading"></a></h3>
+<p>Type in <strong>Filter</strong> box to search:</p>
+<ul class="simple">
+<li><p>Element symbol: <code class="docutils literal notranslate"><span class="pre">fe</span></code> matches Fe</p></li>
+<li><p>Edge energy: <code class="docutils literal notranslate"><span class="pre">7.1</span></code> matches Fe, Co</p></li>
+<li><p>Partial match supported</p></li>
+</ul>
+</section>
+<section id="keyboard-shortcuts">
+<h3>Keyboard Shortcuts<a class="headerlink" href="#keyboard-shortcuts" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Mouse wheel</strong>: Zoom in/out on plot</p></li>
+<li><p><strong>Left click + drag</strong>: Pan plot</p></li>
+<li><p><strong>Right click</strong>: Reset zoom</p></li>
+</ul>
+</section>
+<section id="log-window">
+<h3>Log Window<a class="headerlink" href="#log-window" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Timestamped entries</p></li>
+<li><p>Auto-scrolls to latest</p></li>
+<li><p>Copy-pasteable for records</p></li>
+<li><p>Shows all EPICS operations</p></li>
+</ul>
+</section>
+</section>
+<section id="troubleshooting-tips">
+<h2>Troubleshooting Tips<a class="headerlink" href="#troubleshooting-tips" title="Link to this heading"></a></h2>
+<section id="calibration-not-starting">
+<h3>Calibration Not Starting<a class="headerlink" href="#calibration-not-starting" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Check energy range is valid (start &lt; end, step &gt; 0)</p></li>
+<li><p>Verify PV connections in log</p></li>
+<li><p>Test manual <code class="docutils literal notranslate"><span class="pre">caput</span></code> to energy PV</p></li>
+</ul>
+</section>
+<section id="plot-not-updating">
+<h3>Plot Not Updating<a class="headerlink" href="#plot-not-updating" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Check overlay mode setting</p></li>
+<li><p>Ensure file paths are correct</p></li>
+<li><p>Verify file format (2 columns)</p></li>
+</ul>
+</section>
+<section id="energy-not-changing">
+<h3>Energy Not Changing<a class="headerlink" href="#energy-not-changing" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Check EPICS connection</p></li>
+<li><p>Verify energy set PV is correct</p></li>
+<li><p>Look for error messages in log</p></li>
+</ul>
+</section>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Test with calibration</strong> before full XANES scan</p></li>
+<li><p><strong>Use reference curves</strong> to verify edge positions</p></li>
+<li><p><strong>Monitor log</strong> for EPICS errors</p></li>
+<li><p><strong>Save calibration data</strong> for future reference</p></li>
+<li><p><strong>Check settling time</strong> is appropriate for your system</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="quickstart.html" class="btn btn-neutral float-left" title="Quick Start Guide" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="features.html" class="btn btn-neutral float-right" title="Features" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, APS Beamline 32-ID.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

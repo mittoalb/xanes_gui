@@ -1,0 +1,2 @@
+[console_scripts]
+xanes-gui = xanes_gui:main
