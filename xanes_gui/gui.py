@@ -258,15 +258,10 @@ class StartScriptWorker(QThread):
     def run(self):
         try:
             self.log.emit(f"Launching script: {self.script_path}")
-            # Preserve environment for X11/D-Bus access (needed for gnome-terminal)
-            env = os.environ.copy()
-            self.log.emit(f"DEBUG: DISPLAY={env.get('DISPLAY', 'NOT SET')}")
-            self.log.emit(f"DEBUG: USER={env.get('USER', 'NOT SET')}")
             self._proc = subprocess.Popen(
-                ["bash", "-x", self.script_path],
+                ["bash", self.script_path],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                preexec_fn=os.setsid,
-                env=env
+                preexec_fn=os.setsid
             )
             self._proc_pgid = os.getpgid(self._proc.pid)
             for line in self._proc.stdout:
