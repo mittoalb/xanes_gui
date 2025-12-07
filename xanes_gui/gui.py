@@ -48,8 +48,8 @@ DEFAULTS = {
     "epid_v_on_pv": "32idbSoft:epidV:on",
     "shaker_run_pv": "32idbSoft:epidShaker:shaker:run",
     # Reference curve files (auto-load on element click)
-    "curve_dir_calibrated": os.path.join(os.path.dirname(os.path.dirname(__file__)), "Calibrated"),
-    "curve_dir_simulated": os.path.join(os.path.dirname(os.path.dirname(__file__)), "Curves"),
+    "curve_dir_calibrated": "",
+    "curve_dir_simulated": "",
     "curve_ext": ".npy",  # ".npy" or ".csv"
 }
 
