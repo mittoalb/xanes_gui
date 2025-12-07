@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                               QProgressBar, QListWidget, QRadioButton, QCheckBox, QGroupBox,
                               QMessageBox, QFileDialog, QComboBox, QFrame, QSplitter, QDialog,
                               QScrollArea, QButtonGroup)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
 from PyQt5.QtGui import QPalette, QColor
 
 import pyqtgraph as pg
@@ -287,6 +287,9 @@ class XANESGui(QMainWindow):
         self.setWindowTitle("XANES Control")
         self.resize(1500, 1200)
 
+        # Settings
+        self.settings = QSettings("ANL", "XANES_GUI")
+
         # Dark theme
         self.set_dark_theme()
 
@@ -311,6 +314,9 @@ class XANESGui(QMainWindow):
         # Build tabs
         self.build_scan_tab()
         self.build_pv_tab()
+
+        # Load saved settings
+        self.load_settings()
 
         # Start prefill worker
         self.prefill_worker = PrefillWorker()
@@ -648,6 +654,12 @@ class XANESGui(QMainWindow):
 
         scroll.setWidget(scroll_content)
         pv_layout.addWidget(scroll)
+
+        # Save button
+        save_btn = QPushButton("Save Settings")
+        save_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; min-height: 35px;")
+        save_btn.clicked.connect(self.save_settings)
+        pv_layout.addWidget(save_btn)
 
         self.tabs.addTab(pv_widget, "PV Settings")
 
@@ -1259,6 +1271,35 @@ class XANESGui(QMainWindow):
         )
         if d:
             widget.setText(d)
+
+    # ---------- Settings ----------
+    def save_settings(self):
+        """Save current settings to persistent storage."""
+        self.settings.setValue("detector_pv", self.detector_pv.text())
+        self.settings.setValue("cam_acquire_pv", self.cam_acquire_pv.text())
+        self.settings.setValue("cam_acquire_rbv_pv", self.cam_acquire_rbv_pv.text())
+        self.settings.setValue("energy_set_pv", self.energy_set_pv.text())
+        self.settings.setValue("energy_rb_pv", self.energy_rb_pv.text())
+        self.settings.setValue("settle_time", self.settle_time.text())
+        self.settings.setValue("start_script", self.start_script.text())
+        self.settings.setValue("curve_dir_calibrated", self.curve_dir_calibrated.text())
+        self.settings.setValue("curve_dir_simulated", self.curve_dir_simulated.text())
+        self.settings.setValue("curve_ext", self.curve_ext.currentText())
+        QMessageBox.information(self, "Settings Saved", "All settings have been saved successfully.")
+        self.log("Settings saved")
+
+    def load_settings(self):
+        """Load settings from persistent storage."""
+        self.detector_pv.setText(self.settings.value("detector_pv", DEFAULTS["detector_pv"]))
+        self.cam_acquire_pv.setText(self.settings.value("cam_acquire_pv", DEFAULTS["cam_acquire_pv"]))
+        self.cam_acquire_rbv_pv.setText(self.settings.value("cam_acquire_rbv_pv", DEFAULTS["cam_acquire_rbv_pv"]))
+        self.energy_set_pv.setText(self.settings.value("energy_set_pv", DEFAULTS["energy_set_pv"]))
+        self.energy_rb_pv.setText(self.settings.value("energy_rb_pv", DEFAULTS["energy_rb_pv"]))
+        self.settle_time.setText(self.settings.value("settle_time", str(DEFAULTS["settle_s"])))
+        self.start_script.setText(self.settings.value("start_script", DEFAULTS["start_script"]))
+        self.curve_dir_calibrated.setText(self.settings.value("curve_dir_calibrated", DEFAULTS["curve_dir_calibrated"]))
+        self.curve_dir_simulated.setText(self.settings.value("curve_dir_simulated", DEFAULTS["curve_dir_simulated"]))
+        self.curve_ext.setCurrentText(self.settings.value("curve_ext", DEFAULTS["curve_ext"]))
 
     # ---------- Cleanup ----------
     def closeEvent(self, event):

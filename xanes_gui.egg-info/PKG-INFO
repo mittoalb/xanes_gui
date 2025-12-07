@@ -1,15 +1,15 @@
 Metadata-Version: 2.4
 Name: xanes-gui
-Version: 1.0.0
+Version: 1.0.1
 Summary: A PyQt5-based graphical interface for XANES spectroscopy at APS Beamline 32-ID
-Author-email: APS Beamline 32-ID <32id@aps.anl.gov>
-Maintainer-email: APS Beamline 32-ID <32id@aps.anl.gov>
+Author-email: Alberto Mittone <amittone@anl.gov>
+Maintainer-email: Alberto Mittone <amittone@anl.gov>
 License: MIT
-Project-URL: Homepage, https://github.com/yourusername/xanes-gui
+Project-URL: Homepage, https://github.com/mittoalb/xanes-gui
 Project-URL: Documentation, https://xanes-gui.readthedocs.io
-Project-URL: Repository, https://github.com/yourusername/xanes-gui
-Project-URL: Bug Tracker, https://github.com/yourusername/xanes-gui/issues
-Project-URL: Changelog, https://github.com/yourusername/xanes-gui/blob/main/CHANGELOG.md
+Project-URL: Repository, https://github.com/mittoalb/xanes-gui
+Project-URL: Bug Tracker, https://github.com/mittoalb/xanes-gui/issues
+Project-URL: Changelog, https://github.com/mittoalb/xanes-gui/blob/main/CHANGELOG.md
 Keywords: xanes,spectroscopy,xray,synchrotron,epics,beamline,aps,x-ray absorption
 Classifier: Development Status :: 5 - Production/Stable
 Classifier: Intended Audience :: Science/Research
