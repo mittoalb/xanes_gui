@@ -1285,8 +1285,10 @@ class XANESGui(QMainWindow):
         self.settings.setValue("curve_dir_calibrated", self.curve_dir_calibrated.text())
         self.settings.setValue("curve_dir_simulated", self.curve_dir_simulated.text())
         self.settings.setValue("curve_ext", self.curve_ext.currentText())
-        QMessageBox.information(self, "Settings Saved", "All settings have been saved successfully.")
-        self.log("Settings saved")
+        self.settings.sync()  # Force write to disk
+        self.log(f"Settings saved to {self.settings.fileName()}")
+        self.log(f"Start script saved as: {self.start_script.text()}")
+        QMessageBox.information(self, "Settings Saved", f"Settings saved to:\n{self.settings.fileName()}")
 
     def load_settings(self):
         """Load settings from persistent storage."""
@@ -1300,6 +1302,13 @@ class XANESGui(QMainWindow):
         self.curve_dir_calibrated.setText(self.settings.value("curve_dir_calibrated", DEFAULTS["curve_dir_calibrated"]))
         self.curve_dir_simulated.setText(self.settings.value("curve_dir_simulated", DEFAULTS["curve_dir_simulated"]))
         self.curve_ext.setCurrentText(self.settings.value("curve_ext", DEFAULTS["curve_ext"]))
+
+        # Log what was loaded
+        loaded_script = self.settings.value("start_script", DEFAULTS["start_script"])
+        if loaded_script != DEFAULTS["start_script"]:
+            self.log(f"Loaded saved start script: {loaded_script}")
+        else:
+            self.log(f"Using default start script: {loaded_script}")
 
     # ---------- Cleanup ----------
     def closeEvent(self, event):
