@@ -6,6 +6,115 @@ All notable changes to the XANES GUI project are documented here.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+Version 1.1.0 (2024-12-07)
+--------------------------
+
+Major update with embedded terminal, smart execution, and integer step sizes.
+
+Added
+~~~~~
+
+**Embedded Terminal**
+
+* Replaced external terminal windows with embedded terminal widget
+* Real-time color-coded output (red=errors, blue=operations, yellow=data, green=success)
+* Terminal with black background and green monospace font
+* Clear button to reset terminal output
+* Auto-scroll to latest messages
+* No external gnome-terminal windows required
+
+**Smart Execution Detection**
+
+* Automatic detection of local vs remote execution
+* Checks hostname matching (exact and short names)
+* Detects if script exists locally
+* Seamlessly switches between local and SSH execution
+* No manual configuration needed for local runs
+
+**SSH Configuration**
+
+* Dedicated "Remote Execution Configuration (SSH)" section in PV Settings
+* Configurable remote user, host, conda environment
+* Working directory and conda path settings
+* Python script path configuration
+* Settings persist across sessions
+
+**Integer Step Sizes**
+
+* Plot selection method now uses integer step field (1, 2, 3... eV)
+* Changed from point count to step size for consistency
+* Uses np.arange for exact step size preservation
+* Both energy range extremes always included
+* Real-time calculation shows points for given step
+
+Changed
+~~~~~~~
+
+**Energy Range Methods**
+
+* Plot selection: Replaced "# Points" with "Step (eV)" field
+* Uses np.arange instead of np.linspace for exact steps
+* Step validation ensures integer values only
+* Auto-calculates number of points from range and step
+
+**Script Execution**
+
+* ``StartScriptWorker`` now handles both local and remote execution
+* Removed obsolete ``script_path`` parameter
+* Simplified worker initialization
+* Better error messages for connection issues
+
+**Terminal Output**
+
+* Log window renamed to "Terminal" throughout UI
+* Enhanced message color coding logic
+* Improved timestamp formatting
+* Better visual hierarchy with separators
+
+Removed
+~~~~~~~
+
+**Legacy Code**
+
+* Removed obsolete "Start .sh path" field from PV Settings
+* Removed unused ``start_script`` default configuration
+* Cleaned up legacy bash script execution code
+* Removed ``script_path`` parameter from ``StartScriptWorker``
+
+**Build Artifacts**
+
+* Removed build/ directory (22MB+ space saved)
+* Removed xanes_gui.egg-info/
+* Removed docs/build/ (documentation builds)
+* Removed all __pycache__/ directories
+* Removed all *.pyc files
+
+Fixed
+~~~~~
+
+* SSH connection "Invalid argument" error when running locally
+* Non-integer step sizes (e.g., 1.024 eV) in plot selection
+* Missing energy range extremes in some cases
+* Terminal not showing script output in real-time
+
+Improved
+~~~~~~~~
+
+**Documentation**
+
+* Updated README.md with new features
+* Updated features.rst with terminal and SSH details
+* Added smart execution detection documentation
+* Improved configuration examples
+* Enhanced .gitignore with build artifact patterns
+
+**Code Quality**
+
+* Reduced gui.py from 63KB to 62KB
+* Removed 7 instances of legacy code
+* Zero TODO/FIXME comments remaining
+* Clean, maintainable codebase
+
 Version 1.0.0 (2024-12-06)
 --------------------------
 

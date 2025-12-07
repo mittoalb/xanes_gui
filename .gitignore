@@ -135,6 +135,12 @@ dmypy.json
 Thumbs.db
 
 # Project specific
-*.npy
 *.csv
 ~/.xanes_gui_settings.json
+
+# Documentation builds
+docs/build/
+docs/_build/
+
+# Egg info
+*.egg-info/

@@ -70,8 +70,9 @@ Best for: Visual selection based on reference curves
 
 * Interactive red region on plot
 * Drag to select energy range
-* Auto-suggests points for 1 eV step
-* Manual point adjustment available
+* Specify integer step size (1, 2, 3... eV)
+* Exact step size preserved using np.arange
+* Both extremes always included
 * Real-time range display
 
 **Method 3: Custom Energy Array**
@@ -194,34 +195,99 @@ All EPICS PVs configurable in PV Settings tab:
 Script Integration
 ------------------
 
-External Script Launching
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Embedded Terminal Execution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The **Start XANES** button:
 
 * Sets EPICS PVs with scan parameters
 * Saves custom energy array to ``~/energies.npy``
-* Launches bash script via subprocess
-* Streams output to log window
+* Executes Python script in embedded terminal
+* Real-time color-coded output display
+* No external terminal windows
+
+Smart Execution Detection
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Automatically chooses local or remote execution:
+
+* Checks if script file exists locally
+* Compares hostname with configured remote host
+* Runs locally if on same machine
+* Uses SSH if remote execution needed
+
+**Detection logic**:
+
+1. Exact hostname match (e.g., "gauss" == "gauss")
+2. Short hostname match (e.g., "volta" from "volta.xray.aps.anl.gov")
+3. Localhost variants ("localhost", "127.0.0.1")
+4. Script file exists at configured path
+
+SSH Configuration
+~~~~~~~~~~~~~~~~~
+
+Configurable in PV Settings tab:
+
+* Remote user (e.g., "usertxm")
+* Remote host (e.g., "gauss")
+* Conda environment (e.g., "tomoscan")
+* Working directory
+* Conda installation path
+* Python script path
+
+Local Execution
+~~~~~~~~~~~~~~~
+
+When running locally:
+
+.. code-block:: bash
+
+   cd <work_dir>
+   source <conda_path>/etc/profile.d/conda.sh
+   conda activate <conda_env>
+   python <script_name>
+
+Remote Execution (SSH)
+~~~~~~~~~~~~~~~~~~~~~~
+
+When running remotely:
+
+.. code-block:: bash
+
+   ssh -t <user>@<host> "
+     cd <work_dir> &&
+     source <conda_path>/etc/profile.d/conda.sh &&
+     conda activate <conda_env> &&
+     python <script_name>
+   "
 
 Process Management
 ~~~~~~~~~~~~~~~~~~
 
 * Process group creation for clean termination
 * SIGTERM sent to entire process group on stop
-* Timeout handling for script execution
+* Line-buffered output streaming
 * Return code checking
+* Graceful error handling
 
-Script Workflow
-~~~~~~~~~~~~~~~
+Terminal Output Features
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-Typical script operations:
+**Color-coded messages**:
 
-1. SSH to acquisition computer
-2. Load energy parameters from EPICS or file
-3. Initialize tomoscan
-4. Execute energy scan
-5. Save data to configured location
+* Red: Errors and failures
+* Orange: Warnings
+* Blue: Operations (energy changes, acquisitions)
+* Yellow: Data outputs (sum values, points)
+* Green: Success messages and general info
+* Gray: Timestamps
+
+**Controls**:
+
+* Auto-scroll to latest output
+* Clear button to reset terminal
+* Terminal persists between runs
+* Copy-pasteable output
 
 Interactive Plotting
 --------------------
@@ -290,8 +356,8 @@ Type in filter box to search by:
 * Partial matches supported
 * Real-time filtering
 
-Comprehensive Logging
----------------------
+Comprehensive Terminal Logging
+-------------------------------
 
 Timestamped Events
 ~~~~~~~~~~~~~~~~~~
@@ -301,23 +367,30 @@ All operations logged with timestamps:
 * EPICS PV changes
 * Energy set commands
 * Detector acquisitions
-* Script output
+* Script output (stdout/stderr)
+* SSH connection status
 * Errors and warnings
 
-Auto-Scrolling
-~~~~~~~~~~~~~~
+Terminal Features
+~~~~~~~~~~~~~~~~~
 
+* Black background with green monospace text
+* Color-coded message types
 * Automatically scrolls to latest entry
 * Maintains readability during long scans
 * Copy-pasteable for records
+* Clear button to reset display
 
-Log Content
-~~~~~~~~~~~
+Terminal Content
+~~~~~~~~~~~~~~~~
 
 * Energy set confirmations
 * Detector sum values
-* Script stdout/stderr
+* Script stdout/stderr streaming
 * EPICS connection status
+* SSH connection messages
+* Local/remote execution indicator
+* Return codes and completion status
 * Error messages with context
 
 User Interface Features

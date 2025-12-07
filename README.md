@@ -9,9 +9,11 @@ A PyQt5-based graphical user interface for X-ray Absorption Near Edge Structure 
 ## Features
 
 - **Modern PyQt5 Interface** - Dark theme optimized for beamline environments
+- **Embedded Terminal** - Real-time script output in GUI (no external terminals)
+- **Smart Execution** - Auto-detects local vs remote execution
 - **Real-time Calibration** - Live plot updates during energy scans
-- **Flexible Energy Configuration** - Three methods for defining scan ranges
-- **Reference Curve Support** - Calibrated and simulated spectra visualization
+- **Flexible Energy Configuration** - Three methods for defining scan ranges with integer step sizes
+- **Reference Curve Support** - Calibrated and simulated spectra visualization with edge shift detection
 - **EPICS Integration** - Full Channel Access and PVAccess support
 - **Thread-Safe Operations** - Non-blocking UI during acquisitions
 - **Interactive Plotting** - Zoom, pan, and overlay multiple curves
@@ -55,10 +57,9 @@ export EPICS_PVA_ADDR_LIST="your_ioc_address"
 ```
 
 2. Open the **PV Settings** tab and configure:
-   - Detector PVA channel
-   - Energy control PVs
-   - Start script path
-   - Curve directories
+   - **EPICS/PVA Configuration**: Detector PVA channel, Energy control PVs
+   - **Remote Execution (SSH)**: Remote host, conda environment, script path
+   - **Reference Curves**: Calibrated and simulated curve directories
 
 3. Select an element and click **Calibrate** to test!
 
@@ -66,14 +67,16 @@ export EPICS_PVA_ADDR_LIST="your_ioc_address"
 
 ### Method 1: Manual Entry
 Standard scans with uniform spacing:
-- Enter start energy, end energy, and step size
+- Enter start energy, end energy, and step size (in eV)
 - Auto-calculates total points
+- Integer step sizes guaranteed (1, 2, 3... eV)
 - Quick setup with **Apply to fields** button
 
 ### Method 2: Plot Selection
 Visual selection based on reference curves:
-- Drag a region on the plot
-- Automatically suggests point count
+- Drag a region on the plot to select energy range
+- Specify integer step size (1, 2, 3... eV)
+- Exact step size preserved using np.arange
 - Perfect for edge-specific ranges
 
 ### Method 3: Custom Energy Array
@@ -125,11 +128,14 @@ Settings are stored in `~/.xanes_gui_settings.json`:
 
 ```json
 {
-  "pva_name": "32idbSP1:Pva1:Image",
+  "detector_pv": "32idbSP1:Pva1:Image",
   "energy_set_pv": "32id:TXMOptics:EnergySet",
-  "start_sh_path": "/path/to/xanes_start.sh",
-  "calibrated_curves_folder": "/data/Calibrated/",
-  "simulated_curves_folder": "/data/Curves/"
+  "remote_user": "usertxm",
+  "remote_host": "gauss",
+  "conda_env": "tomoscan",
+  "script_name": "/home/beams/USERTXM/Software/xanes_gui/xanes_energy.py",
+  "curve_dir_calibrated": "/data/Calibrated/",
+  "curve_dir_simulated": "/data/Curves/"
 }
 ```
 
@@ -146,9 +152,12 @@ Settings are stored in `~/.xanes_gui_settings.json`:
 ### Start a XANES Scan
 
 1. Configure energy range (any method)
-2. Verify start script path in PV Settings
+2. Verify remote execution settings in **PV Settings** tab
 3. Click **Start XANES**
-4. Monitor progress in log window
+4. Monitor real-time output in embedded terminal
+   - Auto-detects if running locally or needs SSH
+   - Color-coded output (errors in red, operations in blue, success in green)
+   - No external terminal windows opened
 
 ## Development
 

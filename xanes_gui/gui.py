@@ -31,8 +31,6 @@ DEFAULTS = {
     "energy_set_pv": "32id:TXMOptics:EnergySet",
     "energy_rb_pv": "32id:TXMOptics:Energy_RBV",
     "settle_s": 0.15,
-    # Start launcher (.sh)
-    "start_script": "/path/to/xanes_start.sh",
     # XANES PVs to prefill fields
     "xanes_start_pv":  "32id:TXMOptics:XanesStart",
     "xanes_end_pv":    "32id:TXMOptics:XanesEnd",
@@ -242,14 +240,13 @@ class CalibrationWorker(QThread):
             self.error.emit(f"ERROR (calibrate): {ex}")
 
 class StartScriptWorker(QThread):
-    """Thread to run the start script via SSH in embedded terminal."""
+    """Thread to run the XANES script locally or via SSH in embedded terminal."""
     log = pyqtSignal(str)
     finished = pyqtSignal(int)  # exit code
     error = pyqtSignal(str)
 
-    def __init__(self, script_path, remote_config=None):
+    def __init__(self, remote_config=None):
         super().__init__()
-        self.script_path = script_path
         self.remote_config = remote_config or {}
         self._stop_requested = False
         self._proc = None
@@ -688,7 +685,6 @@ class XANESGui(QMainWindow):
         self.energy_set_pv = QLineEdit(DEFAULTS["energy_set_pv"])
         self.energy_rb_pv = QLineEdit(DEFAULTS["energy_rb_pv"])
         self.settle_time = QLineEdit(str(DEFAULTS["settle_s"]))
-        self.start_script = QLineEdit(DEFAULTS["start_script"])
         self.curve_dir_calibrated = QLineEdit(DEFAULTS["curve_dir_calibrated"])
         self.curve_dir_simulated = QLineEdit(DEFAULTS["curve_dir_simulated"])
         self.curve_ext = QComboBox()
@@ -711,7 +707,6 @@ class XANESGui(QMainWindow):
             ("Energy set PV:", self.energy_set_pv, None),
             ("Energy RB PV (opt):", self.energy_rb_pv, None),
             ("Settle (s):", self.settle_time, None),
-            ("Start .sh path:", self.start_script, None),
             ("Calibrated curves folder:", self.curve_dir_calibrated, "browse_calib"),
             ("Simulated curves folder:", self.curve_dir_simulated, "browse_sim"),
             ("Ref curve extension:", self.curve_ext, "combo"),
@@ -1380,7 +1375,7 @@ class XANESGui(QMainWindow):
         self.log("=" * 60)
 
         # Create and start worker with remote configuration
-        self._start_worker = StartScriptWorker(None, remote_config)
+        self._start_worker = StartScriptWorker(remote_config)
         self._start_worker.log.connect(self.log)
         self._start_worker.finished.connect(self.on_start_finished)
         self._start_worker.error.connect(self.on_start_error)
@@ -1446,7 +1441,6 @@ class XANESGui(QMainWindow):
             "energy_set_pv": self.energy_set_pv.text(),
             "energy_rb_pv": self.energy_rb_pv.text(),
             "settle_time": self.settle_time.text(),
-            "start_script": self.start_script.text(),
             "curve_dir_calibrated": self.curve_dir_calibrated.text(),
             "curve_dir_simulated": self.curve_dir_simulated.text(),
             "curve_ext": self.curve_ext.currentText(),
@@ -1484,7 +1478,6 @@ class XANESGui(QMainWindow):
             self.energy_set_pv.setText(settings.get("energy_set_pv", DEFAULTS["energy_set_pv"]))
             self.energy_rb_pv.setText(settings.get("energy_rb_pv", DEFAULTS["energy_rb_pv"]))
             self.settle_time.setText(settings.get("settle_time", str(DEFAULTS["settle_s"])))
-            self.start_script.setText(settings.get("start_script", DEFAULTS["start_script"]))
             self.curve_dir_calibrated.setText(settings.get("curve_dir_calibrated", DEFAULTS["curve_dir_calibrated"]))
             self.curve_dir_simulated.setText(settings.get("curve_dir_simulated", DEFAULTS["curve_dir_simulated"]))
             self.curve_ext.setCurrentText(settings.get("curve_ext", DEFAULTS["curve_ext"]))
@@ -1495,10 +1488,7 @@ class XANESGui(QMainWindow):
             self.conda_path.setText(settings.get("conda_path", DEFAULTS["conda_path"]))
             self.script_name.setText(settings.get("script_name", DEFAULTS["script_name"]))
 
-            loaded_script = settings.get("start_script", DEFAULTS["start_script"])
             self.log(f"Settings loaded from {self.settings_file}")
-            if loaded_script != DEFAULTS["start_script"]:
-                self.log(f"Start script: {loaded_script}")
         except Exception as ex:
             self.log(f"Error loading settings: {ex}")
             QMessageBox.warning(self, "Load Error", f"Failed to load settings:\n{ex}\n\nUsing defaults.")
