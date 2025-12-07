@@ -512,10 +512,11 @@ class XANESGui(QMainWindow):
         self.btn_enable_select = QPushButton("Enable Selection")
         self.btn_enable_select.clicked.connect(self.enable_plot_selection)
         plot_select_layout.addWidget(self.btn_enable_select)
-        plot_select_layout.addWidget(QLabel("# Points:"))
-        self.plot_npts = QLineEdit("121")
-        self.plot_npts.setMaximumWidth(80)
-        plot_select_layout.addWidget(self.plot_npts)
+        plot_select_layout.addWidget(QLabel("Step (eV):"))
+        self.plot_step = QLineEdit("1")
+        self.plot_step.setMaximumWidth(60)
+        self.plot_step.textChanged.connect(self.update_plot_selection_points)
+        plot_select_layout.addWidget(self.plot_step)
         self.plot_range_label = QLabel("Range: Not selected")
         self.plot_range_label.setStyleSheet("color: cyan;")
         plot_select_layout.addWidget(self.plot_range_label)
@@ -933,16 +934,29 @@ class XANESGui(QMainWindow):
             return
 
         self._selected_range = (min(xmin, xmax), max(xmin, xmax))
+        self.update_plot_selection_points()
 
-        # Calculate appropriate number of points for 1 eV step
-        range_ev = abs(xmax - xmin) * 1000  # Convert to eV
-        suggested_points = int(range_ev / 1.0) + 1  # 1 eV minimum step
+    def update_plot_selection_points(self):
+        """Update the plot selection range label based on step size."""
+        if self._selected_range is None:
+            return
 
-        # Update the points field with suggestion
-        self.plot_npts.setText(str(suggested_points))
+        xmin, xmax = self._selected_range
+        try:
+            step_ev = int(float(self.plot_step.text()))
+            if step_ev <= 0:
+                self.plot_range_label.setText("Step must be > 0")
+                return
+        except ValueError:
+            self.plot_range_label.setText("Invalid step value")
+            return
 
-        self.plot_range_label.setText(f"Range: {xmin:.4f} - {xmax:.4f} keV ({suggested_points} pts @ 1eV)")
-        self.log(f"Selected energy range: {xmin:.4f} - {xmax:.4f} keV → {suggested_points} points (1 eV step)")
+        # Calculate number of points to include both extremes
+        range_ev = abs(xmax - xmin) * 1000  # Convert keV to eV
+        npts = int(range_ev / step_ev) + 1
+
+        self.plot_range_label.setText(f"Range: {xmin:.4f} - {xmax:.4f} keV ({npts} pts @ {step_ev}eV)")
+        self.log(f"Selected energy range: {xmin:.4f} - {xmax:.4f} keV → {npts} points ({step_ev} eV step)")
 
     def load_custom_energies(self):
         """Load custom energy values from a file."""
@@ -1057,11 +1071,16 @@ class XANESGui(QMainWindow):
             if self._selected_range is None:
                 raise ValueError("No energy range selected on plot. Enable selection and drag on plot.")
             try:
-                npts = int(float(self.plot_npts.text()))
-                if npts <= 1:
-                    raise ValueError("Number of points must be > 1")
+                step_ev = int(float(self.plot_step.text()))
+                if step_ev <= 0:
+                    raise ValueError("Step must be > 0")
                 emin, emax = self._selected_range
-                return np.linspace(emin, emax, npts)
+                # Use arange to ensure exact step size, then ensure endpoint is included
+                step_kev = step_ev / 1000.0  # Convert eV to keV
+                energies = np.arange(emin, emax + step_kev/2, step_kev)
+                if len(energies) <= 1:
+                    raise ValueError("Number of points must be > 1")
+                return energies
             except ValueError as ex:
                 raise ValueError(f"Plot selection method error: {ex}")
 
