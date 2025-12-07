@@ -10,10 +10,10 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "APS Beamline 32-ID", email = "32id@aps.anl.gov"}
+    {name = "Alberto Mittone", email = "amittone@anl.gov"}
 ]
 maintainers = [
-    {name = "APS Beamline 32-ID", email = "32id@aps.anl.gov"}
+    {name = "Alberto Mittone", email = "amittone@anl.gov"}
 ]
 keywords = [
     "xanes",
@@ -65,11 +65,11 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/xanes-gui"
+Homepage = "https://github.com/mittoalb/xanes-gui"
 Documentation = "https://xanes-gui.readthedocs.io"
-Repository = "https://github.com/yourusername/xanes-gui"
-"Bug Tracker" = "https://github.com/yourusername/xanes-gui/issues"
-Changelog = "https://github.com/yourusername/xanes-gui/blob/main/CHANGELOG.md"
+Repository = "https://github.com/mittoalb/xanes-gui"
+"Bug Tracker" = "https://github.com/mittoalb/xanes-gui/issues"
+Changelog = "https://github.com/mittoalb/xanes-gui/blob/main/CHANGELOG.md"
 
 [project.scripts]
 xanes-gui = "xanes_gui:main"

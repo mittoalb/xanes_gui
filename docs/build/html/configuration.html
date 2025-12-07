@@ -1,0 +1,700 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configuration &mdash; XANES GUI 1.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=8d563738"></script>
+      <script src="_static/doctools.js?v=9a2dae69"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Troubleshooting" href="troubleshooting.html" />
+    <link rel="prev" title="API Reference" href="api.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            XANES GUI
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="user_guide.html">User Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#settings-file">Settings File</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#location">Location</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#format">Format</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#manual-editing">Manual Editing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#epics-pv-configuration">EPICS PV Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#detector-settings">Detector Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#energy-control-settings">Energy Control Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scan-parameter-pvs">Scan Parameter PVs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#safety-pvs">Safety PVs</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#file-path-configuration">File Path Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#start-script-path">Start Script Path</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#curve-directories">Curve Directories</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#epics-environment-variables">EPICS Environment Variables</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#channel-access">Channel Access</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pvaccess">PVAccess</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#testing-configuration">Testing Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#energy-configuration">Energy Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#default-energy-range">Default Energy Range</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#auto-fill-configuration">Auto-Fill Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#ui-configuration">UI Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#curve-source">Curve Source</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#energy-method">Energy Method</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#overlay-mode">Overlay Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#window-size-and-position">Window Size and Position</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#performance-settings">Performance Settings</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#plot-update-rate">Plot Update Rate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#thread-pool-size">Thread Pool Size</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#log-window">Log Window</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#advanced-configuration">Advanced Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#custom-pv-names">Custom PV Names</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#multiple-configurations">Multiple Configurations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-k-edge-list">Custom K-Edge List</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#network-configuration">Network Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#firewall-rules">Firewall Rules</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ssh-configuration">SSH Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#troubleshooting-configuration">Troubleshooting Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#settings-not-persisting">Settings Not Persisting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#epics-pvs-not-found">EPICS PVs Not Found</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#curves-not-loading">Curves Not Loading</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#script-not-executing">Script Not Executing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html">Changelog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="license.html">License</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">XANES GUI</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Configuration</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/configuration.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="configuration">
+<h1>Configuration<a class="headerlink" href="#configuration" title="Link to this heading"></a></h1>
+<p>This guide covers all configuration options for the XANES GUI.</p>
+<section id="settings-file">
+<h2>Settings File<a class="headerlink" href="#settings-file" title="Link to this heading"></a></h2>
+<section id="location">
+<h3>Location<a class="headerlink" href="#location" title="Link to this heading"></a></h3>
+<p>The GUI stores settings in:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>~/.xanes_gui_settings.json
+</pre></div>
+</div>
+<p>This file is automatically created on first run and updated whenever settings change.</p>
+</section>
+<section id="format">
+<h3>Format<a class="headerlink" href="#format" title="Link to this heading"></a></h3>
+<p>JSON format with the following structure:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;pva_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;32idbSP1:Pva1:Image&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;acquire_pv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;32idbSP1:cam1:Acquire&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;acquire_rbv_pv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;32idbSP1:cam1:Acquire_RBV&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;energy_set_pv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;32id:TXMOptics:EnergySet&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;energy_rb_pv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;32id:TXMOptics:Energy_RBV&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;settle_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.15&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;start_sh_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/home/user/scripts/xanes_start.sh&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;calibrated_curves_folder&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/data/Calibrated/&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;simulated_curves_folder&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/data/Curves/&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;curve_extension&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;.npy&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;curve_source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;calibrated&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;energy_method&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;overlay_mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;start_energy&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;6.912&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;end_energy&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;7.312&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;step_energy&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1.0&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="manual-editing">
+<h3>Manual Editing<a class="headerlink" href="#manual-editing" title="Link to this heading"></a></h3>
+<p>You can manually edit this file while the GUI is closed. The GUI validates settings on load and uses defaults for missing or invalid values.</p>
+</section>
+</section>
+<section id="epics-pv-configuration">
+<h2>EPICS PV Configuration<a class="headerlink" href="#epics-pv-configuration" title="Link to this heading"></a></h2>
+<section id="detector-settings">
+<h3>Detector Settings<a class="headerlink" href="#detector-settings" title="Link to this heading"></a></h3>
+<p><strong>Detector PVA (NTNDArray)</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: PVAccess channel for detector image acquisition</p></li>
+<li><p><strong>Format</strong>: <code class="docutils literal notranslate"><span class="pre">&lt;prefix&gt;:Pva1:Image</span></code></p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">32idbSP1:Pva1:Image</span></code></p></li>
+<li><p><strong>Required</strong>: Yes</p></li>
+<li><p><strong>Type</strong>: NTNDArray structure with image data</p></li>
+</ul>
+<p>The PVA channel must provide NTNDArray format with:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">value[0]['ubyteValue']</span></code> - Image data array</p></li>
+<li><p>Supports any detector with areaDetector PVA plugin</p></li>
+</ul>
+<p><strong>Camera Acquire PV</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Trigger detector acquisition</p></li>
+<li><p><strong>Format</strong>: <code class="docutils literal notranslate"><span class="pre">&lt;prefix&gt;:cam1:Acquire</span></code></p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">32idbSP1:cam1:Acquire</span></code></p></li>
+<li><p><strong>Required</strong>: Yes</p></li>
+<li><p><strong>Values</strong>: 0 (stop), 1 (start)</p></li>
+</ul>
+<p><strong>Camera Acquire Readback PV</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Monitor acquisition status</p></li>
+<li><p><strong>Format</strong>: <code class="docutils literal notranslate"><span class="pre">&lt;prefix&gt;:cam1:Acquire_RBV</span></code></p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">32idbSP1:cam1:Acquire_RBV</span></code></p></li>
+<li><p><strong>Required</strong>: Yes</p></li>
+<li><p><strong>Values</strong>: 0 (idle), 1 (acquiring)</p></li>
+</ul>
+</section>
+<section id="energy-control-settings">
+<h3>Energy Control Settings<a class="headerlink" href="#energy-control-settings" title="Link to this heading"></a></h3>
+<p><strong>Energy Set PV</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Set monochromator energy</p></li>
+<li><p><strong>Format</strong>: <code class="docutils literal notranslate"><span class="pre">&lt;prefix&gt;:EnergySet</span></code></p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">32id:TXMOptics:EnergySet</span></code></p></li>
+<li><p><strong>Required</strong>: Yes</p></li>
+<li><p><strong>Units</strong>: keV</p></li>
+<li><p><strong>Precision</strong>: Typically 0.001 keV (1 eV)</p></li>
+</ul>
+<p><strong>Energy Readback PV</strong> (Optional)</p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Verify energy reached target</p></li>
+<li><p><strong>Format</strong>: <code class="docutils literal notranslate"><span class="pre">&lt;prefix&gt;:Energy_RBV</span></code></p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">32id:TXMOptics:Energy_RBV</span></code></p></li>
+<li><p><strong>Required</strong>: No (but recommended)</p></li>
+<li><p><strong>Units</strong>: keV</p></li>
+</ul>
+<p>If specified, calibration waits for readback to match setpoint within tolerance before triggering acquisition.</p>
+<p><strong>Settle Time</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Time to wait after energy change before acquisition</p></li>
+<li><p><strong>Format</strong>: Decimal seconds</p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">0.15</span></code></p></li>
+<li><p><strong>Required</strong>: Yes</p></li>
+<li><p><strong>Range</strong>: 0.0 - 10.0 seconds</p></li>
+<li><p><strong>Typical</strong>: 0.1 - 0.5 seconds</p></li>
+</ul>
+<p>Adjust based on monochromator stabilization time.</p>
+</section>
+<section id="scan-parameter-pvs">
+<h3>Scan Parameter PVs<a class="headerlink" href="#scan-parameter-pvs" title="Link to this heading"></a></h3>
+<p>These PVs are set by the <strong>Start XANES</strong> button:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">32ida:XanesStart</span></code> - Start energy (keV)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">32ida:XanesEnd</span></code> - End energy (keV)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">32ida:XanesStep</span></code> - Step size (eV)</p></li>
+</ul>
+<p><strong>Note</strong>: These PV names are currently hard-coded. For different PV names, modify the script or contact support.</p>
+<p>For custom energy arrays (Method 3), the array is saved to <code class="docutils literal notranslate"><span class="pre">~/energies.npy</span></code> instead.</p>
+</section>
+<section id="safety-pvs">
+<h3>Safety PVs<a class="headerlink" href="#safety-pvs" title="Link to this heading"></a></h3>
+<p>On scan abort, these PVs are triggered:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">32idcTXM:FrameType</span></code> - Set to 2</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">32idcTXM:EPID_OFF</span></code> - Set to 1</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">32idcTXM:ShakerON</span></code> - Set to 0</p></li>
+</ul>
+<p><strong>Note</strong>: These are hard-coded for APS 32-ID. Modify source code for different beamline configurations.</p>
+</section>
+</section>
+<section id="file-path-configuration">
+<h2>File Path Configuration<a class="headerlink" href="#file-path-configuration" title="Link to this heading"></a></h2>
+<section id="start-script-path">
+<h3>Start Script Path<a class="headerlink" href="#start-script-path" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Bash script to execute for XANES acquisition</p></li>
+<li><p><strong>Format</strong>: Absolute path</p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">/home/beams/USER32ID/scan_scripts/xanes_start.sh</span></code></p></li>
+<li><p><strong>Required</strong>: For <strong>Start XANES</strong> functionality</p></li>
+<li><p><strong>Permissions</strong>: Must be executable (<code class="docutils literal notranslate"><span class="pre">chmod</span> <span class="pre">+x</span></code>)</p></li>
+</ul>
+<p><strong>Script Requirements:</strong></p>
+<p>The script should:</p>
+<ol class="arabic simple">
+<li><p>Read energy parameters from EPICS PVs or <code class="docutils literal notranslate"><span class="pre">~/energies.npy</span></code></p></li>
+<li><p>SSH to acquisition computer (if needed)</p></li>
+<li><p>Execute tomoscan or similar acquisition software</p></li>
+<li><p>Save data to configured location</p></li>
+</ol>
+<p><strong>Example Script:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/bin/bash</span>
+
+<span class="c1"># Read EPICS PVs</span>
+<span class="nv">START</span><span class="o">=</span><span class="k">$(</span>caget<span class="w"> </span>-t<span class="w"> </span>32ida:XanesStart<span class="k">)</span>
+<span class="nv">END</span><span class="o">=</span><span class="k">$(</span>caget<span class="w"> </span>-t<span class="w"> </span>32ida:XanesEnd<span class="k">)</span>
+<span class="nv">STEP</span><span class="o">=</span><span class="k">$(</span>caget<span class="w"> </span>-t<span class="w"> </span>32ida:XanesStep<span class="k">)</span>
+
+<span class="c1"># SSH to acquisition computer and run scan</span>
+ssh<span class="w"> </span>-t<span class="w"> </span>user@acq_computer<span class="w"> </span><span class="s2">&quot;cd /data &amp;&amp; \</span>
+<span class="s2">    tomoscan energy --start </span><span class="nv">$START</span><span class="s2"> --end </span><span class="nv">$END</span><span class="s2"> --step </span><span class="nv">$STEP</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="curve-directories">
+<h3>Curve Directories<a class="headerlink" href="#curve-directories" title="Link to this heading"></a></h3>
+<p><strong>Calibrated Curves Folder</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Directory containing measured reference curves</p></li>
+<li><p><strong>Format</strong>: Absolute path</p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">/data/xanes/Calibrated/</span></code></p></li>
+<li><p><strong>Required</strong>: For calibrated curve loading</p></li>
+<li><p><strong>Permissions</strong>: Read access required</p></li>
+</ul>
+<p><strong>Expected Files:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&lt;Element&gt;_calibrated.npy</span></code> or <code class="docutils literal notranslate"><span class="pre">&lt;Element&gt;.npy</span></code></p></li>
+<li><p>Example: <code class="docutils literal notranslate"><span class="pre">Fe_calibrated.npy</span></code>, <code class="docutils literal notranslate"><span class="pre">Co_calibrated.npy</span></code></p></li>
+</ul>
+<p><strong>Simulated Curves Folder</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: Directory containing theoretical reference curves</p></li>
+<li><p><strong>Format</strong>: Absolute path</p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">/data/xanes/Curves/</span></code></p></li>
+<li><p><strong>Required</strong>: For simulated curve loading</p></li>
+<li><p><strong>Permissions</strong>: Read access required</p></li>
+</ul>
+<p><strong>Expected Files:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&lt;Element&gt;.npy</span></code></p></li>
+<li><p>Example: <code class="docutils literal notranslate"><span class="pre">Fe.npy</span></code>, <code class="docutils literal notranslate"><span class="pre">Co.npy</span></code></p></li>
+</ul>
+<p><strong>Curve File Extension</strong></p>
+<ul class="simple">
+<li><p><strong>Purpose</strong>: File extension for reference curves</p></li>
+<li><p><strong>Format</strong>: Extension with or without dot</p></li>
+<li><p><strong>Example</strong>: <code class="docutils literal notranslate"><span class="pre">.npy</span></code> or <code class="docutils literal notranslate"><span class="pre">npy</span></code></p></li>
+<li><p><strong>Supported</strong>: <code class="docutils literal notranslate"><span class="pre">.npy</span></code>, <code class="docutils literal notranslate"><span class="pre">.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">.txt</span></code></p></li>
+<li><p><strong>Recommended</strong>: <code class="docutils literal notranslate"><span class="pre">.npy</span></code> (fastest loading)</p></li>
+</ul>
+</section>
+</section>
+<section id="epics-environment-variables">
+<h2>EPICS Environment Variables<a class="headerlink" href="#epics-environment-variables" title="Link to this heading"></a></h2>
+<section id="channel-access">
+<h3>Channel Access<a class="headerlink" href="#channel-access" title="Link to this heading"></a></h3>
+<p>Required environment variables for EPICS CA:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Required: IOC address list</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_CA_ADDR_LIST</span><span class="o">=</span><span class="s2">&quot;164.54.53.255&quot;</span>
+
+<span class="c1"># Disable auto address list when using explicit list</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_CA_AUTO_ADDR_LIST</span><span class="o">=</span>NO
+
+<span class="c1"># Optional: Timeout settings</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_CA_CONN_TMO</span><span class="o">=</span><span class="m">5</span>.0
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_CA_BEACON_PERIOD</span><span class="o">=</span><span class="m">15</span>.0
+
+<span class="c1"># Optional: Network settings</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_CA_MAX_ARRAY_BYTES</span><span class="o">=</span><span class="m">16384</span>
+</pre></div>
+</div>
+<p>Add to <code class="docutils literal notranslate"><span class="pre">~/.bashrc</span></code> for persistence.</p>
+</section>
+<section id="pvaccess">
+<h3>PVAccess<a class="headerlink" href="#pvaccess" title="Link to this heading"></a></h3>
+<p>Required environment variables for EPICS PVA:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Required: IOC address list</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_PVA_ADDR_LIST</span><span class="o">=</span><span class="s2">&quot;164.54.53.255&quot;</span>
+
+<span class="c1"># Optional: Timeout settings</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_PVA_CONN_TMO</span><span class="o">=</span><span class="m">5</span>.0
+
+<span class="c1"># Optional: Broadcast port</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EPICS_PVA_BROADCAST_PORT</span><span class="o">=</span><span class="m">5076</span>
+</pre></div>
+</div>
+</section>
+<section id="testing-configuration">
+<h3>Testing Configuration<a class="headerlink" href="#testing-configuration" title="Link to this heading"></a></h3>
+<p>Verify EPICS connectivity:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Test Channel Access</span>
+caget<span class="w"> </span>32id:TXMOptics:EnergySet
+
+<span class="c1"># Test PVAccess</span>
+pvget<span class="w"> </span>32idbSP1:Pva1:Image
+</pre></div>
+</div>
+<p>If these fail, check:</p>
+<ol class="arabic simple">
+<li><p>Environment variables are set</p></li>
+<li><p>Network connectivity to IOC</p></li>
+<li><p>Firewall allows EPICS ports (5064, 5065, 5075, 5076)</p></li>
+</ol>
+</section>
+</section>
+<section id="energy-configuration">
+<h2>Energy Configuration<a class="headerlink" href="#energy-configuration" title="Link to this heading"></a></h2>
+<section id="default-energy-range">
+<h3>Default Energy Range<a class="headerlink" href="#default-energy-range" title="Link to this heading"></a></h3>
+<p><strong>Start Energy</strong></p>
+<ul class="simple">
+<li><p><strong>Default</strong>: 6.912 keV (Fe K-edge - 200 eV)</p></li>
+<li><p><strong>Range</strong>: 0.1 - 100 keV</p></li>
+<li><p><strong>Precision</strong>: 0.001 keV</p></li>
+</ul>
+<p><strong>End Energy</strong></p>
+<ul class="simple">
+<li><p><strong>Default</strong>: 7.312 keV (Fe K-edge + 200 eV)</p></li>
+<li><p><strong>Range</strong>: 0.1 - 100 keV</p></li>
+<li><p><strong>Precision</strong>: 0.001 keV</p></li>
+<li><p><strong>Constraint</strong>: Must be &gt; Start Energy</p></li>
+</ul>
+<p><strong>Step Size</strong></p>
+<ul class="simple">
+<li><p><strong>Default</strong>: 1.0 eV</p></li>
+<li><p><strong>Range</strong>: &gt; 0 eV</p></li>
+<li><p><strong>Recommended</strong>: ≥ 1.0 eV</p></li>
+<li><p><strong>Warning</strong>: Steps &lt; 1 eV show warning but are allowed</p></li>
+</ul>
+</section>
+<section id="auto-fill-configuration">
+<h3>Auto-Fill Configuration<a class="headerlink" href="#auto-fill-configuration" title="Link to this heading"></a></h3>
+<p>The <strong>Apply to fields</strong> button uses these rules:</p>
+<ul class="simple">
+<li><p>Start = Edge - 200 eV</p></li>
+<li><p>End = Edge + 200 eV</p></li>
+<li><p>Step = 1.0 eV</p></li>
+</ul>
+<p>This provides ±200 eV coverage around the edge, suitable for most XANES measurements.</p>
+</section>
+</section>
+<section id="ui-configuration">
+<h2>UI Configuration<a class="headerlink" href="#ui-configuration" title="Link to this heading"></a></h2>
+<section id="curve-source">
+<h3>Curve Source<a class="headerlink" href="#curve-source" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Options</strong>: Calibrated, Simulated</p></li>
+<li><p><strong>Default</strong>: Calibrated</p></li>
+<li><p><strong>Persistence</strong>: Saved in settings file</p></li>
+</ul>
+<p>Determines which directory to load curves from.</p>
+</section>
+<section id="energy-method">
+<h3>Energy Method<a class="headerlink" href="#energy-method" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Options</strong>:
+0. Manual (Start/End/Step)
+1. Select range on plot
+2. Import custom energy array</p></li>
+<li><p><strong>Default</strong>: 0 (Manual)</p></li>
+<li><p><strong>Persistence</strong>: Saved in settings file</p></li>
+</ul>
+</section>
+<section id="overlay-mode">
+<h3>Overlay Mode<a class="headerlink" href="#overlay-mode" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Options</strong>: On, Off</p></li>
+<li><p><strong>Default</strong>: Off</p></li>
+<li><p><strong>Persistence</strong>: Saved in settings file</p></li>
+</ul>
+<p>When enabled, new curves are added to existing plot. When disabled, plot is cleared before loading.</p>
+</section>
+<section id="window-size-and-position">
+<h3>Window Size and Position<a class="headerlink" href="#window-size-and-position" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Default</strong>: 1400x900 pixels</p></li>
+<li><p><strong>Persistence</strong>: Not currently saved</p></li>
+<li><p><strong>Splitter Position</strong>: 70% plot, 30% controls</p></li>
+</ul>
+</section>
+</section>
+<section id="performance-settings">
+<h2>Performance Settings<a class="headerlink" href="#performance-settings" title="Link to this heading"></a></h2>
+<section id="plot-update-rate">
+<h3>Plot Update Rate<a class="headerlink" href="#plot-update-rate" title="Link to this heading"></a></h3>
+<p>During calibration:</p>
+<ul class="simple">
+<li><p><strong>Update frequency</strong>: Every data point</p></li>
+<li><p><strong>Max points</strong>: No limit</p></li>
+<li><p><strong>Downsampling</strong>: None (all points plotted)</p></li>
+</ul>
+<p>For very long scans (&gt;10,000 points), consider using custom energy arrays with coarser post-edge spacing.</p>
+</section>
+<section id="thread-pool-size">
+<h3>Thread Pool Size<a class="headerlink" href="#thread-pool-size" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Calibration thread</strong>: 1 worker</p></li>
+<li><p><strong>Script thread</strong>: 1 worker</p></li>
+<li><p><strong>Total</strong>: 2 concurrent workers maximum</p></li>
+</ul>
+<p>Additional workers can be added by modifying the source code.</p>
+</section>
+<section id="log-window">
+<h3>Log Window<a class="headerlink" href="#log-window" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Max lines</strong>: Unlimited</p></li>
+<li><p><strong>Auto-scroll</strong>: Always enabled</p></li>
+<li><p><strong>Timestamp format</strong>: <code class="docutils literal notranslate"><span class="pre">YYYY-MM-DD</span> <span class="pre">HH:MM:SS</span></code></p></li>
+</ul>
+</section>
+</section>
+<section id="advanced-configuration">
+<h2>Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Link to this heading"></a></h2>
+<section id="custom-pv-names">
+<h3>Custom PV Names<a class="headerlink" href="#custom-pv-names" title="Link to this heading"></a></h3>
+<p>To use different PV names, edit <code class="docutils literal notranslate"><span class="pre">~/.xanes_gui_settings.json</span></code> directly:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;pva_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MY_BEAMLINE:Det:Pva&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;acquire_pv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MY_BEAMLINE:Det:Acquire&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;energy_set_pv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MY_BEAMLINE:Mono:Energy&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="multiple-configurations">
+<h3>Multiple Configurations<a class="headerlink" href="#multiple-configurations" title="Link to this heading"></a></h3>
+<p>For multiple beamline computers or configurations:</p>
+<ol class="arabic simple">
+<li><p>Create separate settings files:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>~/.xanes_gui_settings_computer1.json
+~/.xanes_gui_settings_computer2.json
+</pre></div>
+</div>
+<ol class="arabic simple" start="2">
+<li><p>Use symlink to switch:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ln<span class="w"> </span>-sf<span class="w"> </span>~/.xanes_gui_settings_computer1.json<span class="w"> </span>~/.xanes_gui_settings.json
+</pre></div>
+</div>
+</section>
+<section id="custom-k-edge-list">
+<h3>Custom K-Edge List<a class="headerlink" href="#custom-k-edge-list" title="Link to this heading"></a></h3>
+<p>The K-edge list is hard-coded in the source. To add custom edges:</p>
+<ol class="arabic simple">
+<li><p>Edit <code class="docutils literal notranslate"><span class="pre">xanes_gui.py</span></code></p></li>
+<li><p>Modify the <code class="docutils literal notranslate"><span class="pre">EDGES</span></code> list:</p></li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">EDGES</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;Fe&quot;</span><span class="p">,</span> <span class="mf">7.112</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Co&quot;</span><span class="p">,</span> <span class="mf">7.709</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Custom1&quot;</span><span class="p">,</span> <span class="mf">8.500</span><span class="p">),</span>  <span class="c1"># Add custom edge</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="network-configuration">
+<h2>Network Configuration<a class="headerlink" href="#network-configuration" title="Link to this heading"></a></h2>
+<section id="firewall-rules">
+<h3>Firewall Rules<a class="headerlink" href="#firewall-rules" title="Link to this heading"></a></h3>
+<p>EPICS requires these ports:</p>
+<p><strong>Channel Access:</strong></p>
+<ul class="simple">
+<li><p>TCP/UDP 5064 - CA server</p></li>
+<li><p>TCP/UDP 5065 - CA repeater</p></li>
+<li><p>TCP/UDP 49152-65535 - CA data connections</p></li>
+</ul>
+<p><strong>PVAccess:</strong></p>
+<ul class="simple">
+<li><p>TCP/UDP 5075 - PVA server</p></li>
+<li><p>TCP/UDP 5076 - PVA broadcast</p></li>
+</ul>
+<p><strong>Example iptables rules:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>iptables<span class="w"> </span>-A<span class="w"> </span>INPUT<span class="w"> </span>-p<span class="w"> </span>tcp<span class="w"> </span>--dport<span class="w"> </span><span class="m">5064</span>:5065<span class="w"> </span>-j<span class="w"> </span>ACCEPT
+iptables<span class="w"> </span>-A<span class="w"> </span>INPUT<span class="w"> </span>-p<span class="w"> </span>udp<span class="w"> </span>--dport<span class="w"> </span><span class="m">5064</span>:5065<span class="w"> </span>-j<span class="w"> </span>ACCEPT
+iptables<span class="w"> </span>-A<span class="w"> </span>INPUT<span class="w"> </span>-p<span class="w"> </span>tcp<span class="w"> </span>--dport<span class="w"> </span><span class="m">5075</span>:5076<span class="w"> </span>-j<span class="w"> </span>ACCEPT
+iptables<span class="w"> </span>-A<span class="w"> </span>INPUT<span class="w"> </span>-p<span class="w"> </span>udp<span class="w"> </span>--dport<span class="w"> </span><span class="m">5075</span>:5076<span class="w"> </span>-j<span class="w"> </span>ACCEPT
+</pre></div>
+</div>
+</section>
+<section id="ssh-configuration">
+<h3>SSH Configuration<a class="headerlink" href="#ssh-configuration" title="Link to this heading"></a></h3>
+<p>If start script uses SSH:</p>
+<ol class="arabic simple">
+<li><p>Set up key-based authentication:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ssh-keygen<span class="w"> </span>-t<span class="w"> </span>rsa
+ssh-copy-id<span class="w"> </span>user@acq_computer
+</pre></div>
+</div>
+<ol class="arabic simple" start="2">
+<li><p>Test passwordless SSH:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ssh<span class="w"> </span>user@acq_computer<span class="w"> </span><span class="s2">&quot;echo SSH works&quot;</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="3">
+<li><p>Add to <code class="docutils literal notranslate"><span class="pre">~/.ssh/config</span></code>:</p></li>
+</ol>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Host acq_computer
+    Hostname 164.54.53.100
+    User beams
+    IdentityFile ~/.ssh/id_rsa
+    StrictHostKeyChecking no
+</pre></div>
+</div>
+</section>
+</section>
+<section id="troubleshooting-configuration">
+<h2>Troubleshooting Configuration<a class="headerlink" href="#troubleshooting-configuration" title="Link to this heading"></a></h2>
+<section id="settings-not-persisting">
+<h3>Settings Not Persisting<a class="headerlink" href="#settings-not-persisting" title="Link to this heading"></a></h3>
+<p>Check:</p>
+<ol class="arabic simple">
+<li><p>Settings file permissions:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ls<span class="w"> </span>-l<span class="w"> </span>~/.xanes_gui_settings.json
+chmod<span class="w"> </span><span class="m">644</span><span class="w"> </span>~/.xanes_gui_settings.json
+</pre></div>
+</div>
+<ol class="arabic simple" start="2">
+<li><p>Home directory writable</p></li>
+<li><p>No file system errors in system logs</p></li>
+</ol>
+</section>
+<section id="epics-pvs-not-found">
+<h3>EPICS PVs Not Found<a class="headerlink" href="#epics-pvs-not-found" title="Link to this heading"></a></h3>
+<p>Check:</p>
+<ol class="arabic simple">
+<li><p>Environment variables set (<code class="docutils literal notranslate"><span class="pre">echo</span> <span class="pre">$EPICS_CA_ADDR_LIST</span></code>)</p></li>
+<li><p>Network connectivity (<code class="docutils literal notranslate"><span class="pre">ping</span> <span class="pre">&lt;ioc_address&gt;</span></code>)</p></li>
+<li><p>IOC running (<code class="docutils literal notranslate"><span class="pre">caget</span> <span class="pre">&lt;pv_name&gt;</span></code>)</p></li>
+<li><p>PV names correct (no typos)</p></li>
+<li><p>Firewall rules (<code class="docutils literal notranslate"><span class="pre">iptables</span> <span class="pre">-L</span></code>)</p></li>
+</ol>
+</section>
+<section id="curves-not-loading">
+<h3>Curves Not Loading<a class="headerlink" href="#curves-not-loading" title="Link to this heading"></a></h3>
+<p>Check:</p>
+<ol class="arabic simple">
+<li><p>Directory paths correct and absolute</p></li>
+<li><p>Read permissions on directories</p></li>
+<li><p>Files exist with correct naming</p></li>
+<li><p>File extension matches configuration</p></li>
+<li><p>File format valid (2 columns, numeric data)</p></li>
+</ol>
+</section>
+<section id="script-not-executing">
+<h3>Script Not Executing<a class="headerlink" href="#script-not-executing" title="Link to this heading"></a></h3>
+<p>Check:</p>
+<ol class="arabic simple">
+<li><p>Script path correct and absolute</p></li>
+<li><p>Script executable (<code class="docutils literal notranslate"><span class="pre">chmod</span> <span class="pre">+x</span> <span class="pre">&lt;script&gt;</span></code>)</p></li>
+<li><p>Script shebang present (<code class="docutils literal notranslate"><span class="pre">#!/bin/bash</span></code>)</p></li>
+<li><p>No syntax errors (<code class="docutils literal notranslate"><span class="pre">bash</span> <span class="pre">-n</span> <span class="pre">&lt;script&gt;</span></code>)</p></li>
+<li><p>Dependencies available (tomoscan, ssh, etc.)</p></li>
+</ol>
+</section>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="installation.html"><span class="doc">Installation</span></a> - Installation and setup</p></li>
+<li><p><a class="reference internal" href="user_guide.html"><span class="doc">User Guide</span></a> - Using the configured GUI</p></li>
+<li><p><a class="reference internal" href="troubleshooting.html"><span class="doc">Troubleshooting</span></a> - Detailed troubleshooting</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="api.html" class="btn btn-neutral float-left" title="API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="troubleshooting.html" class="btn btn-neutral float-right" title="Troubleshooting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, APS Beamline 32-ID.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
