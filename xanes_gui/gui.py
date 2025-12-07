@@ -273,21 +273,49 @@ class StartScriptWorker(QThread):
             conda_path = self.remote_config.get("conda_path", "/home/beams/USERTXM/conda/anaconda")
             script_name = self.remote_config.get("script_name", "/home/beams/USERTXM/Software/xanes_gui/xanes_energy.py")
 
-            # Build SSH command
-            ssh_cmd = [
-                "ssh", "-t", f"{remote_user}@{remote_host}",
-                f"bash -l -c \"cd {work_dir} && hostname && "
-                f"source {conda_path}/etc/profile.d/conda.sh && "
-                f"conda activate {conda_env} && "
-                f"python {script_name}\""
-            ]
+            # Check if we're already on the target machine or if script exists locally
+            import socket
+            current_hostname = socket.gethostname()
+            current_hostname_short = current_hostname.split('.')[0]  # Get short hostname
 
-            self.log.emit(f"Connecting to {remote_user}@{remote_host}...")
-            self.log.emit(f"Running: {script_name}")
+            # Check if local: exact match, short name match, localhost, or script file exists locally
+            is_local = (
+                current_hostname == remote_host or
+                current_hostname_short == remote_host or
+                remote_host in ["localhost", "127.0.0.1", ""] or
+                os.path.exists(script_name)  # If script exists locally, run locally
+            )
 
-            # Run SSH command
+            if is_local:
+                # Run locally
+                self.log.emit(f"Running locally on {current_hostname}")
+                self.log.emit(f"Executing: {script_name}")
+
+                # Build local command with conda activation
+                cmd = [
+                    "bash", "-l", "-c",
+                    f"cd {work_dir} && "
+                    f"source {conda_path}/etc/profile.d/conda.sh && "
+                    f"conda activate {conda_env} && "
+                    f"python {script_name}"
+                ]
+            else:
+                # Run via SSH
+                self.log.emit(f"Connecting to {remote_user}@{remote_host}...")
+                self.log.emit(f"Running: {script_name}")
+
+                # Build SSH command
+                cmd = [
+                    "ssh", "-t", f"{remote_user}@{remote_host}",
+                    f"bash -l -c \"cd {work_dir} && hostname && "
+                    f"source {conda_path}/etc/profile.d/conda.sh && "
+                    f"conda activate {conda_env} && "
+                    f"python {script_name}\""
+                ]
+
+            # Run command
             self._proc = subprocess.Popen(
-                ssh_cmd,
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
