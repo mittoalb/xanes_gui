@@ -312,6 +312,10 @@ class XANESGui(QMainWindow):
         # Load saved settings
         self.load_settings()
 
+        # Welcome message
+        self.log("XANES Control GUI initialized")
+        self.log("Ready to calibrate or start XANES scan")
+
         # Start prefill worker
         self.prefill_worker = PrefillWorker()
         self.prefill_worker.result.connect(self.on_prefill_result)
@@ -566,12 +570,30 @@ class XANESGui(QMainWindow):
 
         scan_layout.addLayout(btn_layout)
 
-        # Log
-        log_label = QLabel("Log:")
-        scan_layout.addWidget(log_label)
+        # Terminal/Log
+        terminal_layout = QHBoxLayout()
+        terminal_label = QLabel("Terminal:")
+        terminal_layout.addWidget(terminal_label)
+        terminal_layout.addStretch()
+        self.btn_clear_terminal = QPushButton("Clear")
+        self.btn_clear_terminal.setMaximumWidth(80)
+        self.btn_clear_terminal.clicked.connect(self.clear_terminal)
+        terminal_layout.addWidget(self.btn_clear_terminal)
+        scan_layout.addLayout(terminal_layout)
+
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(200)
+        self.log_text.setMaximumHeight(300)
+        # Terminal styling
+        self.log_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #000000;
+                color: #00ff00;
+                font-family: 'Courier New', 'Monospace', monospace;
+                font-size: 10pt;
+                padding: 5px;
+            }
+        """)
         scan_layout.addWidget(self.log_text)
 
         self.tabs.addTab(scan_widget, "Scan")
@@ -660,9 +682,30 @@ class XANESGui(QMainWindow):
 
     # ---------- Logging ----------
     def log(self, msg):
-        """Add a message to the log with timestamp."""
+        """Add a message to the terminal with timestamp."""
         ts = time.strftime("%H:%M:%S")
-        self.log_text.append(f"[{ts}] {msg}")
+        # Color codes for different message types
+        if msg.startswith("ERROR") or "error" in msg.lower() or "failed" in msg.lower():
+            color = "#ff0000"  # Red for errors
+        elif msg.startswith("WARNING") or "warning" in msg.lower():
+            color = "#ffaa00"  # Orange for warnings
+        elif "Set energy" in msg or "Acquire" in msg:
+            color = "#00aaff"  # Blue for operations
+        elif "Sum @" in msg or "points" in msg:
+            color = "#ffff00"  # Yellow for data
+        elif "Loaded" in msg or "saved" in msg.lower() or "completed" in msg.lower():
+            color = "#00ff00"  # Green for success
+        else:
+            color = "#00ff00"  # Default green
+
+        self.log_text.append(f'<span style="color: #888888;">[{ts}]</span> <span style="color: {color};">{msg}</span>')
+        # Auto-scroll to bottom
+        self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
+    def clear_terminal(self):
+        """Clear the terminal output."""
+        self.log_text.clear()
+        self.log("Terminal cleared")
 
     # ---------- Prefill ----------
     def on_prefill_result(self, s, e, step):
