@@ -51,6 +51,13 @@ DEFAULTS = {
     "curve_dir_calibrated": "",
     "curve_dir_simulated": "",
     "curve_ext": ".npy",  # ".npy" or ".csv"
+    # Remote SSH configuration
+    "remote_user": "usertxm",
+    "remote_host": "gauss",
+    "conda_env": "tomoscan",
+    "work_dir": "/home/beams/USERTXM/epics/synApps/support/tomoscan/iocBoot/iocTomoScan_32ID/",
+    "conda_path": "/home/beams/USERTXM/conda/anaconda",
+    "script_name": "/home/beams/USERTXM/Software/xanes_gui/xanes_energy.py",
 }
 
 # K-edges and L-edges approx. 6–16 keV (rounded to 3 decimals)
@@ -235,14 +242,15 @@ class CalibrationWorker(QThread):
             self.error.emit(f"ERROR (calibrate): {ex}")
 
 class StartScriptWorker(QThread):
-    """Thread to run the start script."""
+    """Thread to run the start script via SSH in embedded terminal."""
     log = pyqtSignal(str)
     finished = pyqtSignal(int)  # exit code
     error = pyqtSignal(str)
 
-    def __init__(self, script_path):
+    def __init__(self, script_path, remote_config=None):
         super().__init__()
         self.script_path = script_path
+        self.remote_config = remote_config or {}
         self._stop_requested = False
         self._proc = None
         self._proc_pgid = None
@@ -257,20 +265,52 @@ class StartScriptWorker(QThread):
 
     def run(self):
         try:
+            # Extract configuration from remote_config
+            remote_user = self.remote_config.get("remote_user", "usertxm")
+            remote_host = self.remote_config.get("remote_host", "gauss")
+            conda_env = self.remote_config.get("conda_env", "tomoscan")
+            work_dir = self.remote_config.get("work_dir", "/home/beams/USERTXM/epics/synApps/support/tomoscan/iocBoot/iocTomoScan_32ID/")
+            conda_path = self.remote_config.get("conda_path", "/home/beams/USERTXM/conda/anaconda")
+            script_name = self.remote_config.get("script_name", "/home/beams/USERTXM/Software/xanes_gui/xanes_energy.py")
+
+            # Build SSH command
+            ssh_cmd = [
+                "ssh", "-t", f"{remote_user}@{remote_host}",
+                f"bash -l -c \"cd {work_dir} && hostname && "
+                f"source {conda_path}/etc/profile.d/conda.sh && "
+                f"conda activate {conda_env} && "
+                f"python {script_name}\""
+            ]
+
+            self.log.emit(f"Connecting to {remote_user}@{remote_host}...")
+            self.log.emit(f"Running: {script_name}")
+
+            # Run SSH command
             self._proc = subprocess.Popen(
-                ["bash", self.script_path],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                ssh_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,  # Line buffered
                 preexec_fn=os.setsid
             )
             self._proc_pgid = os.getpgid(self._proc.pid)
+
+            # Stream output line by line
             for line in self._proc.stdout:
-                self.log.emit(line.rstrip())
                 if self._stop_requested:
                     break
+                self.log.emit(line.rstrip())
+
             rc = self._proc.wait()
+            if rc == 0:
+                self.log.emit("Script completed successfully")
+            else:
+                self.log.emit(f"Script exited with code: {rc}")
             self.finished.emit(rc)
+
         except Exception as ex:
-            self.error.emit(str(ex))
+            self.error.emit(f"ERROR: {str(ex)}")
 
 # -------------------------
 # GUI
@@ -627,6 +667,14 @@ class XANESGui(QMainWindow):
         self.curve_ext.addItems([".npy", ".csv"])
         self.curve_ext.setCurrentText(DEFAULTS["curve_ext"])
 
+        # Remote SSH configuration fields
+        self.remote_user = QLineEdit(DEFAULTS["remote_user"])
+        self.remote_host = QLineEdit(DEFAULTS["remote_host"])
+        self.conda_env = QLineEdit(DEFAULTS["conda_env"])
+        self.work_dir = QLineEdit(DEFAULTS["work_dir"])
+        self.conda_path = QLineEdit(DEFAULTS["conda_path"])
+        self.script_name = QLineEdit(DEFAULTS["script_name"])
+
         # Add rows
         rows = [
             ("Detector PVA (NTNDArray):", self.detector_pv, None),
@@ -667,6 +715,30 @@ class XANESGui(QMainWindow):
 
         pv_group.setLayout(pv_grid)
         scroll_layout.addWidget(pv_group)
+
+        # Remote SSH configuration group
+        remote_group = QGroupBox("Remote Execution Configuration (SSH)")
+        remote_grid = QVBoxLayout()
+
+        remote_rows = [
+            ("Remote user:", self.remote_user),
+            ("Remote host:", self.remote_host),
+            ("Conda environment:", self.conda_env),
+            ("Working directory:", self.work_dir),
+            ("Conda path:", self.conda_path),
+            ("Python script path:", self.script_name),
+        ]
+
+        for label_text, widget in remote_rows:
+            row_layout = QHBoxLayout()
+            label = QLabel(label_text)
+            label.setMinimumWidth(200)
+            row_layout.addWidget(label)
+            row_layout.addWidget(widget, stretch=1)
+            remote_grid.addLayout(row_layout)
+
+        remote_group.setLayout(remote_grid)
+        scroll_layout.addWidget(remote_group)
         scroll_layout.addStretch()
 
         scroll.setWidget(scroll_content)
@@ -1224,13 +1296,7 @@ class XANESGui(QMainWindow):
 
     # ---------- Start / Stop ----------
     def on_start(self):
-        """Launch the start script."""
-        script_path = self.start_script.text().strip()
-        if not script_path or not os.path.exists(script_path):
-            QMessageBox.critical(self, "Start error",
-                               f"Start script not found:\n{script_path or '(empty)'}")
-            return
-
+        """Launch the start script via SSH in embedded terminal."""
         # Get energy array and validate
         try:
             energies = self.get_energy_array()
@@ -1271,8 +1337,22 @@ class XANESGui(QMainWindow):
         self.progress.setValue(0)
         self.progress.setMaximum(100)
 
-        # Create and start worker
-        self._start_worker = StartScriptWorker(script_path)
+        # Build remote configuration
+        remote_config = {
+            "remote_user": self.remote_user.text(),
+            "remote_host": self.remote_host.text(),
+            "conda_env": self.conda_env.text(),
+            "work_dir": self.work_dir.text(),
+            "conda_path": self.conda_path.text(),
+            "script_name": self.script_name.text(),
+        }
+
+        self.log("=" * 60)
+        self.log("Starting XANES scan via SSH...")
+        self.log("=" * 60)
+
+        # Create and start worker with remote configuration
+        self._start_worker = StartScriptWorker(None, remote_config)
         self._start_worker.log.connect(self.log)
         self._start_worker.finished.connect(self.on_start_finished)
         self._start_worker.error.connect(self.on_start_error)
@@ -1342,6 +1422,12 @@ class XANESGui(QMainWindow):
             "curve_dir_calibrated": self.curve_dir_calibrated.text(),
             "curve_dir_simulated": self.curve_dir_simulated.text(),
             "curve_ext": self.curve_ext.currentText(),
+            "remote_user": self.remote_user.text(),
+            "remote_host": self.remote_host.text(),
+            "conda_env": self.conda_env.text(),
+            "work_dir": self.work_dir.text(),
+            "conda_path": self.conda_path.text(),
+            "script_name": self.script_name.text(),
         }
         try:
             with open(self.settings_file, 'w') as f:
@@ -1374,6 +1460,12 @@ class XANESGui(QMainWindow):
             self.curve_dir_calibrated.setText(settings.get("curve_dir_calibrated", DEFAULTS["curve_dir_calibrated"]))
             self.curve_dir_simulated.setText(settings.get("curve_dir_simulated", DEFAULTS["curve_dir_simulated"]))
             self.curve_ext.setCurrentText(settings.get("curve_ext", DEFAULTS["curve_ext"]))
+            self.remote_user.setText(settings.get("remote_user", DEFAULTS["remote_user"]))
+            self.remote_host.setText(settings.get("remote_host", DEFAULTS["remote_host"]))
+            self.conda_env.setText(settings.get("conda_env", DEFAULTS["conda_env"]))
+            self.work_dir.setText(settings.get("work_dir", DEFAULTS["work_dir"]))
+            self.conda_path.setText(settings.get("conda_path", DEFAULTS["conda_path"]))
+            self.script_name.setText(settings.get("script_name", DEFAULTS["script_name"]))
 
             loaded_script = settings.get("start_script", DEFAULTS["start_script"])
             self.log(f"Settings loaded from {self.settings_file}")
