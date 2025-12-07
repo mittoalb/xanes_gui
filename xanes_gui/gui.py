@@ -5,6 +5,7 @@ import os
 import time
 import signal
 import subprocess
+import json
 import numpy as np
 import pvaccess as pva
 import epics
@@ -14,7 +15,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                               QProgressBar, QListWidget, QRadioButton, QCheckBox, QGroupBox,
                               QMessageBox, QFileDialog, QComboBox, QFrame, QSplitter, QDialog,
                               QScrollArea, QButtonGroup)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QPalette, QColor
 
 import pyqtgraph as pg
@@ -287,8 +288,8 @@ class XANESGui(QMainWindow):
         self.setWindowTitle("XANES Control")
         self.resize(1500, 1200)
 
-        # Settings
-        self.settings = QSettings("ANL", "XANES_GUI")
+        # Settings file path
+        self.settings_file = os.path.expanduser("~/.xanes_gui_settings.json")
 
         # Dark theme
         self.set_dark_theme()
@@ -1274,45 +1275,67 @@ class XANESGui(QMainWindow):
 
     # ---------- Settings ----------
     def save_settings(self):
-        """Save current settings to persistent storage."""
-        self.settings.setValue("detector_pv", self.detector_pv.text())
-        self.settings.setValue("cam_acquire_pv", self.cam_acquire_pv.text())
-        self.settings.setValue("cam_acquire_rbv_pv", self.cam_acquire_rbv_pv.text())
-        self.settings.setValue("energy_set_pv", self.energy_set_pv.text())
-        self.settings.setValue("energy_rb_pv", self.energy_rb_pv.text())
-        self.settings.setValue("settle_time", self.settle_time.text())
-        self.settings.setValue("start_script", self.start_script.text())
-        self.settings.setValue("curve_dir_calibrated", self.curve_dir_calibrated.text())
-        self.settings.setValue("curve_dir_simulated", self.curve_dir_simulated.text())
-        self.settings.setValue("curve_ext", self.curve_ext.currentText())
-        self.settings.sync()  # Force write to disk
-        self.log(f"Settings saved to {self.settings.fileName()}")
-        self.log(f"Start script saved as: {self.start_script.text()}")
-        QMessageBox.information(self, "Settings Saved", f"Settings saved to:\n{self.settings.fileName()}")
+        """Save current settings to JSON file."""
+        settings = {
+            "detector_pv": self.detector_pv.text(),
+            "cam_acquire_pv": self.cam_acquire_pv.text(),
+            "cam_acquire_rbv_pv": self.cam_acquire_rbv_pv.text(),
+            "energy_set_pv": self.energy_set_pv.text(),
+            "energy_rb_pv": self.energy_rb_pv.text(),
+            "settle_time": self.settle_time.text(),
+            "start_script": self.start_script.text(),
+            "curve_dir_calibrated": self.curve_dir_calibrated.text(),
+            "curve_dir_simulated": self.curve_dir_simulated.text(),
+            "curve_ext": self.curve_ext.currentText(),
+        }
+        try:
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+            self.log(f"Settings saved to {self.settings_file}")
+            self.log(f"Start script: {self.start_script.text()}")
+            QMessageBox.information(self, "Settings Saved", f"Settings saved to:\n{self.settings_file}")
+        except Exception as ex:
+            self.log(f"Error saving settings: {ex}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save settings:\n{ex}")
 
     def load_settings(self):
-        """Load settings from persistent storage."""
-        self.detector_pv.setText(self.settings.value("detector_pv", DEFAULTS["detector_pv"]))
-        self.cam_acquire_pv.setText(self.settings.value("cam_acquire_pv", DEFAULTS["cam_acquire_pv"]))
-        self.cam_acquire_rbv_pv.setText(self.settings.value("cam_acquire_rbv_pv", DEFAULTS["cam_acquire_rbv_pv"]))
-        self.energy_set_pv.setText(self.settings.value("energy_set_pv", DEFAULTS["energy_set_pv"]))
-        self.energy_rb_pv.setText(self.settings.value("energy_rb_pv", DEFAULTS["energy_rb_pv"]))
-        self.settle_time.setText(self.settings.value("settle_time", str(DEFAULTS["settle_s"])))
-        self.start_script.setText(self.settings.value("start_script", DEFAULTS["start_script"]))
-        self.curve_dir_calibrated.setText(self.settings.value("curve_dir_calibrated", DEFAULTS["curve_dir_calibrated"]))
-        self.curve_dir_simulated.setText(self.settings.value("curve_dir_simulated", DEFAULTS["curve_dir_simulated"]))
-        self.curve_ext.setCurrentText(self.settings.value("curve_ext", DEFAULTS["curve_ext"]))
+        """Load settings from JSON file."""
+        if not os.path.exists(self.settings_file):
+            self.log(f"No saved settings found, using defaults")
+            return
 
-        # Log what was loaded
-        loaded_script = self.settings.value("start_script", DEFAULTS["start_script"])
-        if loaded_script != DEFAULTS["start_script"]:
-            self.log(f"Loaded saved start script: {loaded_script}")
-        else:
-            self.log(f"Using default start script: {loaded_script}")
+        try:
+            with open(self.settings_file, 'r') as f:
+                settings = json.load(f)
+
+            self.detector_pv.setText(settings.get("detector_pv", DEFAULTS["detector_pv"]))
+            self.cam_acquire_pv.setText(settings.get("cam_acquire_pv", DEFAULTS["cam_acquire_pv"]))
+            self.cam_acquire_rbv_pv.setText(settings.get("cam_acquire_rbv_pv", DEFAULTS["cam_acquire_rbv_pv"]))
+            self.energy_set_pv.setText(settings.get("energy_set_pv", DEFAULTS["energy_set_pv"]))
+            self.energy_rb_pv.setText(settings.get("energy_rb_pv", DEFAULTS["energy_rb_pv"]))
+            self.settle_time.setText(settings.get("settle_time", str(DEFAULTS["settle_s"])))
+            self.start_script.setText(settings.get("start_script", DEFAULTS["start_script"]))
+            self.curve_dir_calibrated.setText(settings.get("curve_dir_calibrated", DEFAULTS["curve_dir_calibrated"]))
+            self.curve_dir_simulated.setText(settings.get("curve_dir_simulated", DEFAULTS["curve_dir_simulated"]))
+            self.curve_ext.setCurrentText(settings.get("curve_ext", DEFAULTS["curve_ext"]))
+
+            loaded_script = settings.get("start_script", DEFAULTS["start_script"])
+            self.log(f"Settings loaded from {self.settings_file}")
+            if loaded_script != DEFAULTS["start_script"]:
+                self.log(f"Start script: {loaded_script}")
+        except Exception as ex:
+            self.log(f"Error loading settings: {ex}")
+            QMessageBox.warning(self, "Load Error", f"Failed to load settings:\n{ex}\n\nUsing defaults.")
 
     # ---------- Cleanup ----------
     def closeEvent(self, event):
         """Handle window close event."""
+        # Auto-save settings on close
+        try:
+            self.save_settings()
+        except Exception:
+            pass  # Don't block closing if save fails
+
         # Stop any running workers
         if self._calib_worker and self._calib_worker.isRunning():
             self._calib_worker.stop()
