@@ -1274,7 +1274,7 @@ class XANESGui(QMainWindow):
             widget.setText(d)
 
     # ---------- Settings ----------
-    def save_settings(self):
+    def save_settings(self, show_popup=True):
         """Save current settings to JSON file."""
         settings = {
             "detector_pv": self.detector_pv.text(),
@@ -1292,11 +1292,12 @@ class XANESGui(QMainWindow):
             with open(self.settings_file, 'w') as f:
                 json.dump(settings, f, indent=2)
             self.log(f"Settings saved to {self.settings_file}")
-            self.log(f"Start script: {self.start_script.text()}")
-            QMessageBox.information(self, "Settings Saved", f"Settings saved to:\n{self.settings_file}")
+            if show_popup:
+                QMessageBox.information(self, "Settings Saved", f"Settings saved to:\n{self.settings_file}")
         except Exception as ex:
             self.log(f"Error saving settings: {ex}")
-            QMessageBox.critical(self, "Save Error", f"Failed to save settings:\n{ex}")
+            if show_popup:
+                QMessageBox.critical(self, "Save Error", f"Failed to save settings:\n{ex}")
 
     def load_settings(self):
         """Load settings from JSON file."""
@@ -1330,9 +1331,9 @@ class XANESGui(QMainWindow):
     # ---------- Cleanup ----------
     def closeEvent(self, event):
         """Handle window close event."""
-        # Auto-save settings on close
+        # Auto-save settings on close (no popup)
         try:
-            self.save_settings()
+            self.save_settings(show_popup=False)
         except Exception:
             pass  # Don't block closing if save fails
 
