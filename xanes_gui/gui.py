@@ -257,7 +257,6 @@ class StartScriptWorker(QThread):
 
     def run(self):
         try:
-            self.log.emit(f"Launching script: {self.script_path}")
             self._proc = subprocess.Popen(
                 ["bash", self.script_path],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -269,10 +268,9 @@ class StartScriptWorker(QThread):
                 if self._stop_requested:
                     break
             rc = self._proc.wait()
-            self.log.emit(f"Start script exited with code {rc}")
             self.finished.emit(rc)
         except Exception as ex:
-            self.error.emit(f"ERROR (start launcher): {ex}")
+            self.error.emit(str(ex))
 
 # -------------------------
 # GUI
