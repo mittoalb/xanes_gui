@@ -78,7 +78,7 @@ xanes-gui = "xanes_gui:main"
 packages = ["xanes_gui"]
 
 [tool.setuptools.package-data]
-xanes_gui = ["*.json", "*.npy"]
+xanes_gui = ["*.json", "*.npy", "Calibrated/*.npy", "Curves/*.npy", "Calibrated/*.csv", "Curves/*.csv"]
 
 [tool.black]
 line-length = 100
