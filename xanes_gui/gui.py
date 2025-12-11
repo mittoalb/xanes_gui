@@ -164,7 +164,7 @@ class CalibrationWorker(QThread):
     progress = pyqtSignal(int)  # progress index
     log = pyqtSignal(str)  # log messages
     plot_update = pyqtSignal(object, object)  # energies, sums for plotting
-    finished = pyqtSignal(object, object)  # final energies, sums
+    completed = pyqtSignal(object, object)  # final energies, sums
     error = pyqtSignal(str)
 
     def __init__(self, energies, det_pv, acq_pv, acq_rbv_pv, e_set_pv, e_rb_pv, settle):
@@ -234,7 +234,7 @@ class CalibrationWorker(QThread):
 
             # Emit final result
             if not self._stop_requested:
-                self.finished.emit(self.energies, np.array(sums, dtype=float))
+                self.completed.emit(self.energies, np.array(sums, dtype=float))
 
         except Exception as ex:
             self.error.emit(f"ERROR (calibrate): {ex}")
@@ -1267,7 +1267,7 @@ class XANESGui(QMainWindow):
         self._calib_worker.progress.connect(self.on_calib_progress)
         self._calib_worker.log.connect(self.log)
         self._calib_worker.plot_update.connect(self.on_calib_plot_update)
-        self._calib_worker.finished.connect(self.on_calib_finished)
+        self._calib_worker.completed.connect(self.on_calib_finished)
         self._calib_worker.error.connect(self.on_calib_error)
         self._calib_worker.start()
 
