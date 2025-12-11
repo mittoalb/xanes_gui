@@ -163,8 +163,8 @@ class CalibrationWorker(QThread):
     """Thread to perform calibration scan."""
     progress = pyqtSignal(int)  # progress index
     log = pyqtSignal(str)  # log messages
-    plot_update = pyqtSignal(np.ndarray, np.ndarray)  # energies, sums for plotting
-    finished = pyqtSignal(np.ndarray, np.ndarray)  # final energies, sums
+    plot_update = pyqtSignal(object, object)  # energies, sums for plotting
+    finished = pyqtSignal(object, object)  # final energies, sums
     error = pyqtSignal(str)
 
     def __init__(self, energies, det_pv, acq_pv, acq_rbv_pv, e_set_pv, e_rb_pv, settle):
