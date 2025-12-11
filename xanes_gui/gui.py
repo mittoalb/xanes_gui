@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                               QProgressBar, QListWidget, QRadioButton, QCheckBox, QGroupBox,
                               QMessageBox, QFileDialog, QComboBox, QFrame, QSplitter, QDialog,
                               QScrollArea, QButtonGroup)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QTimer
 from PyQt5.QtGui import QPalette, QColor
 
 import pyqtgraph as pg
@@ -1271,10 +1271,12 @@ class XANESGui(QMainWindow):
         self._calib_worker.error.connect(self.on_calib_error)
         self._calib_worker.start()
 
+    @pyqtSlot(int)
     def on_calib_progress(self, value):
         """Update progress bar."""
         self.progress.setValue(value)
 
+    @pyqtSlot(object, object)
     def on_calib_plot_update(self, energies, sums):
         """Update calibration plot."""
         if not self.overlay_checkbox.isChecked():
@@ -1300,6 +1302,7 @@ class XANESGui(QMainWindow):
             # Update existing plot data
             self._calib_plot_item.setData(energies, sums)
 
+    @pyqtSlot(object, object)
     def on_calib_finished(self, energies, sums):
         """Handle calibration completion."""
         self._last_calib = (energies, sums)
@@ -1308,6 +1311,7 @@ class XANESGui(QMainWindow):
         self.btn_stop.setEnabled(False)
         self.progress.setValue(0)
 
+    @pyqtSlot(str)
     def on_calib_error(self, error):
         """Handle calibration error."""
         self.log(error)
