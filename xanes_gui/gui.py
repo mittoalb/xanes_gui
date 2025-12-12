@@ -1056,9 +1056,14 @@ class XANESGui(QMainWindow):
 
         label = f"{symbol} ({source}){edge_shift_text}"
 
+        # Apply -log() to the calibrated data
+        with np.errstate(divide='ignore', invalid='ignore'):
+            Y_transformed = -np.log(Y)
+            Y_transformed[~np.isfinite(Y_transformed)] = 0
+
         # Plot curve
         pen = pg.mkPen(color='c', width=2)
-        self.plot_widget.plot(E, Y, pen=pen, name=label)
+        self.plot_widget.plot(E, Y_transformed, pen=pen, name=label)
 
         # Plot edge marker
         if mark_edge is not None:
@@ -1110,6 +1115,12 @@ class XANESGui(QMainWindow):
             return
         try:
             E, Y = _load_curve_file(path)
+
+            # Apply -log() to the calibrated data
+            with np.errstate(divide='ignore', invalid='ignore'):
+                Y_transformed = -np.log(Y)
+                Y_transformed[~np.isfinite(Y_transformed)] = 0
+
             if not self.overlay_checkbox.isChecked():
                 self.plot_widget.clear()
                 # Re-add legend after clearing
@@ -1120,8 +1131,8 @@ class XANESGui(QMainWindow):
                 self.plot_legend = self.plot_widget.addLegend()
 
             pen = pg.mkPen(color='c', width=2)
-            self.plot_widget.plot(E, Y, pen=pen, name=os.path.basename(path))
-            self.log(f"Loaded curve: {path}  (N={E.size})")
+            self.plot_widget.plot(E, Y_transformed, pen=pen, name=os.path.basename(path))
+            self.log(f"Loaded curve: {path}  (N={E.size}, -log applied)")
         except Exception as ex:
             QMessageBox.critical(self, "Load curve error", str(ex))
 
@@ -1392,6 +1403,11 @@ class XANESGui(QMainWindow):
     @pyqtSlot(object, object)
     def on_calib_plot_update(self, energies, sums):
         """Update calibration plot."""
+        # Apply -log() transformation to sums for plotting
+        with np.errstate(divide='ignore', invalid='ignore'):
+            absorbance = -np.log(sums / np.max(sums))  # Normalize then -log
+            absorbance[~np.isfinite(absorbance)] = 0  # Replace inf/nan with 0
+
         if not self.overlay_checkbox.isChecked():
             # Clear and reset plot for calibration
             if self._calib_plot_item is None:
@@ -1403,28 +1419,33 @@ class XANESGui(QMainWindow):
                     pass
                 self.plot_legend = self.plot_widget.addLegend()
                 self.plot_widget.setLabel('bottom', 'Energy (keV)', color='white', size='12pt')
-                self.plot_widget.setLabel('left', 'Sum of pixels', color='white', size='12pt')
+                self.plot_widget.setLabel('left', 'Absorbance (-log)', color='white', size='12pt')
 
         # Update or create calibration plot item
         if self._calib_plot_item is None:
             pen = pg.mkPen(color='g', width=2)
-            self._calib_plot_item = self.plot_widget.plot(energies, sums, pen=pen,
+            self._calib_plot_item = self.plot_widget.plot(energies, absorbance, pen=pen,
                                                           symbol='o', symbolSize=4,
                                                           symbolBrush='g', name="Calibration")
         else:
             # Update existing plot data
-            self._calib_plot_item.setData(energies, sums)
+            self._calib_plot_item.setData(energies, absorbance)
 
     @pyqtSlot(object, object)
     def on_calib_finished(self, energies, sums):
         """Handle calibration completion."""
-        self._last_calib = (energies, sums)
+        # Apply -log() transformation to sums
+        with np.errstate(divide='ignore', invalid='ignore'):
+            absorbance = -np.log(sums / np.max(sums))  # Normalize then -log
+            absorbance[~np.isfinite(absorbance)] = 0  # Replace inf/nan with 0
+
+        self._last_calib = (energies, absorbance)
         self.btn_calibrate.setEnabled(True)
         self.btn_save_calib.setEnabled(True)  # Enable save button
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.progress.setValue(0)
-        self.log(f"Calibration completed: {len(energies)} points")
+        self.log(f"Calibration completed: {len(energies)} points (-log applied)")
 
     @pyqtSlot(str)
     def on_calib_error(self, error):
