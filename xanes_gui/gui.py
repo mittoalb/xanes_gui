@@ -81,7 +81,11 @@ def pva_get_ndarray(det_pv):
             break
     else:
         raise RuntimeError("Unsupported NTNDArray numeric type")
-    dims = st.get('dimension', [])
+    # PvObject.get() doesn't support default values like dict.get()
+    try:
+        dims = st['dimension']
+    except KeyError:
+        dims = []
     if len(dims) >= 2:
         h = int(dims[0]['size']); w = int(dims[1]['size'])
         if h*w != flat.size:
