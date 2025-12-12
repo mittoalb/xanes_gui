@@ -726,6 +726,12 @@ class XANESGui(QMainWindow):
         self.btn_calibrate.clicked.connect(self.on_calibrate)
         btn_layout.addWidget(self.btn_calibrate)
 
+        self.btn_save_calib = QPushButton("Save Calibration")
+        self.btn_save_calib.setStyleSheet("background-color: #1E90FF; color: white; font-weight: bold; min-height: 40px;")
+        self.btn_save_calib.clicked.connect(self.on_save_calibration)
+        self.btn_save_calib.setEnabled(False)  # Disabled until calibration is done
+        btn_layout.addWidget(self.btn_save_calib)
+
         self.btn_start = QPushButton("Start XANES")
         self.btn_start.setStyleSheet("background-color: #32CD32; color: black; font-weight: bold; min-height: 40px;")
         self.btn_start.clicked.connect(self.on_start)
@@ -1414,9 +1420,11 @@ class XANESGui(QMainWindow):
         """Handle calibration completion."""
         self._last_calib = (energies, sums)
         self.btn_calibrate.setEnabled(True)
+        self.btn_save_calib.setEnabled(True)  # Enable save button
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.progress.setValue(0)
+        self.log(f"Calibration completed: {len(energies)} points")
 
     @pyqtSlot(str)
     def on_calib_error(self, error):
@@ -1427,6 +1435,47 @@ class XANESGui(QMainWindow):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.progress.setValue(0)
+
+    def on_save_calibration(self):
+        """Save the last calibration curve to a file."""
+        if self._last_calib is None:
+            QMessageBox.warning(self, "No Data", "No calibration data to save. Run calibration first.")
+            return
+
+        energies, sums = self._last_calib
+
+        # Get default directory from settings
+        default_dir = self.curve_dir_calibrated.text().strip()
+        if not default_dir or not os.path.isdir(default_dir):
+            default_dir = os.path.expanduser("~")
+
+        # Open save dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Calibration Curve",
+            default_dir,
+            "NumPy files (*.npy);;CSV files (*.csv)"
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            ext = os.path.splitext(file_path)[1].lower()
+            data = np.column_stack((energies, sums))
+
+            if ext == ".npy":
+                np.save(file_path, data)
+            else:
+                # Save as CSV
+                np.savetxt(file_path, data, delimiter=",", header="Energy(keV),Sum", comments="")
+
+            self.log(f"Calibration saved to {file_path}")
+            QMessageBox.information(self, "Saved", f"Calibration curve saved to:\n{file_path}")
+
+        except Exception as ex:
+            self.log(f"ERROR saving calibration: {ex}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save calibration:\n{ex}")
 
     # ---------- Start / Stop ----------
     def on_start(self):
