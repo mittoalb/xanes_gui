@@ -81,19 +81,98 @@ def pva_get_ndarray(det_pv):
             break
     else:
         raise RuntimeError("Unsupported NTNDArray numeric type")
-    # Try to get dimensions - field might not exist in all NTNDArray structures
+
+    # Try multiple methods to get dimensions
     dims = []
+
+    # Method 1: Try 'dimension' field
     try:
-        # Access dimension field directly - will raise exception if doesn't exist
         dims = st['dimension']
     except Exception:
-        # If dimension field doesn't exist, fall back to square root method below
         pass
+
+    # Method 2: Try to get dims from attributes
+    if len(dims) < 2:
+        try:
+            attrs = st['attribute']
+            width = None
+            height = None
+            for attr in attrs:
+                name = attr['name']
+                # Try common attribute names for array dimensions
+                if name in ('ArraySize0_Y', 'ArraySizeY', 'dimY'):
+                    height = int(attr['value'])
+                elif name in ('ArraySize1_X', 'ArraySizeX', 'dimX'):
+                    width = int(attr['value'])
+            if width and height and width * height == flat.size:
+                return flat.reshape(height, width)
+        except Exception:
+            pass
+
+    # Method 2b: Try 'dims' field directly (some NTNDArray versions)
+    if len(dims) < 2:
+        try:
+            if 'dims' in st:
+                dim_list = st['dims']
+                if len(dim_list) >= 2:
+                    h = int(dim_list[0])
+                    w = int(dim_list[1])
+                    if h * w == flat.size:
+                        return flat.reshape(h, w)
+        except Exception:
+            pass
+
+    # Method 3: Use dimension field if available
     if len(dims) >= 2:
-        h = int(dims[0]['size']); w = int(dims[1]['size'])
-        if h*w != flat.size:
-            raise RuntimeError("Size mismatch (dims vs data length)")
-        return flat.reshape(h, w)
+        h = int(dims[0]['size'])
+        w = int(dims[1]['size'])
+        if h*w == flat.size:
+            return flat.reshape(h, w)
+
+    # Method 4: Try to get ROI dimensions from TXM crop PVs
+    if len(dims) < 2:
+        try:
+            left = int(epics.caget('32id:TXMOptics:CropLeft.VAL'))
+            right = int(epics.caget('32id:TXMOptics:CropRight.VAL'))
+            top = int(epics.caget('32id:TXMOptics:CropTop.VAL'))
+            bottom = int(epics.caget('32id:TXMOptics:CropBottom.VAL'))
+
+            width = right - left
+            height = bottom - top
+
+            if width > 0 and height > 0 and width * height == flat.size:
+                return flat.reshape(height, width)
+        except Exception:
+            pass
+
+    # Method 5: Try to get ArraySize from EPICS CA (not PVA)
+    # Extract base PV name from detector PV (e.g., "32idbSP1:Pva1:Image" -> "32idbSP1:cam1:")
+    if len(dims) < 2:
+        try:
+            # Common pattern: PvaX:Image -> camX:ArraySizeY_RBV, ArraySizeX_RBV
+            base_pv = det_pv.replace(':Pva1:Image', ':cam1:').replace(':Pva2:Image', ':cam2:')
+            if base_pv != det_pv:  # We found a pattern
+                height = int(epics.caget(base_pv + 'ArraySizeY_RBV'))
+                width = int(epics.caget(base_pv + 'ArraySizeX_RBV'))
+                if width and height and width * height == flat.size:
+                    return flat.reshape(height, width)
+        except Exception:
+            pass
+
+    # Method 6: Fallback - try all factor pairs to find best rectangular fit
+    # This handles ROI cases where image is not square
+    n = flat.size
+    best_h, best_w = None, None
+    for h in range(int(np.sqrt(n)), 0, -1):
+        if n % h == 0:
+            w = n // h
+            best_h, best_w = h, w
+            break
+
+    if best_h and best_w:
+        return flat.reshape(best_h, best_w)
+
+    # Last resort: square root method (will likely fail)
     side = int(np.sqrt(flat.size))
     return flat.reshape(side, flat.size // side)
 
