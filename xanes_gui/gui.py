@@ -28,7 +28,8 @@ DEFAULTS = {
     "detector_pv": "32idbSP1:Pva1:Image",
     "cam_acquire_pv": "32idbSP1:cam1:Acquire",
     "cam_acquire_rbv_pv": "32idbSP1:cam1:Acquire_RBV",
-    "energy_set_pv": "32id:TXMOptics:EnergySet",
+    "energy_pv": "32id:TXMOptics:Energy",  # Target energy value
+    "energy_set_pv": "32id:TXMOptics:EnergySet",  # Button to trigger move
     "energy_rb_pv": "32id:TXMOptics:Energy_RBV",
     "settle_s": 0.15,
     # XANES PVs to prefill fields
@@ -253,13 +254,14 @@ class CalibrationWorker(QThread):
     completed = pyqtSignal(object, object)  # final energies, sums
     error = pyqtSignal(str)
 
-    def __init__(self, energies, det_pv, acq_pv, acq_rbv_pv, e_set_pv, e_rb_pv, settle):
+    def __init__(self, energies, det_pv, acq_pv, acq_rbv_pv, e_pv, e_set_pv, e_rb_pv, settle):
         super().__init__()
         self.energies = energies
         self.det_pv = det_pv
         self.acq_pv = acq_pv
         self.acq_rbv_pv = acq_rbv_pv
-        self.e_set_pv = e_set_pv
+        self.e_pv = e_pv  # Target energy value PV
+        self.e_set_pv = e_set_pv  # Button to trigger move
         self.e_rb_pv = e_rb_pv
         self.settle = settle
         self._stop_requested = False
@@ -278,17 +280,33 @@ class CalibrationWorker(QThread):
                     break
 
                 self.log.emit(f"Set energy → {E:.4f} keV")
-                epics_put(self.e_set_pv, E, wait=True)
+                try:
+                    # Step 1: Write target energy value
+                    epics_put(self.e_pv, E, wait=True)
+                    # Step 2: Press the button to trigger move
+                    epics_put(self.e_set_pv, 1, wait=False)
+                except Exception as ex:
+                    self.log.emit(f"WARNING: Energy set failed: {ex}")
+
+                # Wait for energy readback to reach target
                 t0 = time.time()
                 if self.e_rb_pv:
-                    for _ in range(60):
+                    energy_reached = False
+                    for attempt in range(100):  # Up to 5 seconds
                         try:
                             rb = float(epics_get(self.e_rb_pv))
-                            if abs(rb - E) <= 0.001:  # ~1 eV
+                            if abs(rb - E) <= 0.001:  # ~1 eV tolerance in keV
+                                energy_reached = True
+                                elapsed = time.time() - t0
+                                self.log.emit(f"Energy reached {rb:.4f} keV in {elapsed:.2f}s")
                                 break
                         except Exception:
                             pass
                         time.sleep(0.05)
+                    if not energy_reached:
+                        self.log.emit(f"WARNING: Energy may not have reached {E:.4f} keV")
+
+                # Additional settle time after reaching target
                 dt = max(0.0, self.settle - (time.time() - t0))
                 if dt > 0:
                     time.sleep(dt)
@@ -768,6 +786,7 @@ class XANESGui(QMainWindow):
         self.detector_pv = QLineEdit(DEFAULTS["detector_pv"])
         self.cam_acquire_pv = QLineEdit(DEFAULTS["cam_acquire_pv"])
         self.cam_acquire_rbv_pv = QLineEdit(DEFAULTS["cam_acquire_rbv_pv"])
+        self.energy_pv = QLineEdit(DEFAULTS["energy_pv"])
         self.energy_set_pv = QLineEdit(DEFAULTS["energy_set_pv"])
         self.energy_rb_pv = QLineEdit(DEFAULTS["energy_rb_pv"])
         self.settle_time = QLineEdit(str(DEFAULTS["settle_s"]))
@@ -790,7 +809,8 @@ class XANESGui(QMainWindow):
             ("Detector PVA (NTNDArray):", self.detector_pv, None),
             ("cam:Acquire PV:", self.cam_acquire_pv, None),
             ("cam:Acquire_RBV PV:", self.cam_acquire_rbv_pv, None),
-            ("Energy set PV:", self.energy_set_pv, None),
+            ("Energy PV (target value):", self.energy_pv, None),
+            ("Energy set PV (button):", self.energy_set_pv, None),
             ("Energy RB PV (opt):", self.energy_rb_pv, None),
             ("Settle (s):", self.settle_time, None),
             ("Calibrated curves folder:", self.curve_dir_calibrated, "browse_calib"),
@@ -1340,6 +1360,7 @@ class XANESGui(QMainWindow):
         det_pv = self.detector_pv.text()
         acq_pv = self.cam_acquire_pv.text()
         acq_rbv_pv = self.cam_acquire_rbv_pv.text()
+        e_pv = self.energy_pv.text()
         e_set_pv = self.energy_set_pv.text()
         e_rb_pv = self.energy_rb_pv.text().strip()
         try:
@@ -1349,7 +1370,7 @@ class XANESGui(QMainWindow):
 
         # Create and start worker
         self._calib_worker = CalibrationWorker(energies, det_pv, acq_pv, acq_rbv_pv,
-                                               e_set_pv, e_rb_pv, settle)
+                                               e_pv, e_set_pv, e_rb_pv, settle)
         self._calib_worker.progress.connect(self.on_calib_progress)
         self._calib_worker.log.connect(self.log)
         self._calib_worker.plot_update.connect(self.on_calib_plot_update)
@@ -1528,6 +1549,7 @@ class XANESGui(QMainWindow):
             "detector_pv": self.detector_pv.text(),
             "cam_acquire_pv": self.cam_acquire_pv.text(),
             "cam_acquire_rbv_pv": self.cam_acquire_rbv_pv.text(),
+            "energy_pv": self.energy_pv.text(),
             "energy_set_pv": self.energy_set_pv.text(),
             "energy_rb_pv": self.energy_rb_pv.text(),
             "settle_time": self.settle_time.text(),
@@ -1565,6 +1587,7 @@ class XANESGui(QMainWindow):
             self.detector_pv.setText(settings.get("detector_pv", DEFAULTS["detector_pv"]))
             self.cam_acquire_pv.setText(settings.get("cam_acquire_pv", DEFAULTS["cam_acquire_pv"]))
             self.cam_acquire_rbv_pv.setText(settings.get("cam_acquire_rbv_pv", DEFAULTS["cam_acquire_rbv_pv"]))
+            self.energy_pv.setText(settings.get("energy_pv", DEFAULTS["energy_pv"]))
             self.energy_set_pv.setText(settings.get("energy_set_pv", DEFAULTS["energy_set_pv"]))
             self.energy_rb_pv.setText(settings.get("energy_rb_pv", DEFAULTS["energy_rb_pv"]))
             self.settle_time.setText(settings.get("settle_time", str(DEFAULTS["settle_s"])))
