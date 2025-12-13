@@ -1212,9 +1212,10 @@ class XANESGui(QMainWindow):
             self.plot_range_label.setText("Invalid step value")
             return
 
-        # Calculate number of points to include both extremes
-        range_ev = abs(xmax - xmin) * 1000  # Convert keV to eV
-        npts = int(range_ev / step_ev) + 1
+        # Calculate number of points exactly as np.arange will generate
+        step_kev = step_ev / 1000.0
+        energies = np.arange(xmin, xmax + step_kev/2, step_kev)
+        npts = len(energies)
 
         self.plot_range_label.setText(f"Range: {xmin:.4f} - {xmax:.4f} keV ({npts} pts @ {step_ev}eV)")
         self.log(f"Selected energy range: {xmin:.4f} - {xmax:.4f} keV → {npts} points ({step_ev} eV step)")
