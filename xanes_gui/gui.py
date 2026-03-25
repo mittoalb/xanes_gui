@@ -1435,12 +1435,7 @@ class XANESGui(QMainWindow):
     @pyqtSlot(object, object)
     def on_calib_finished(self, energies, sums):
         """Handle calibration completion."""
-        # Apply -log() transformation to sums
-        with np.errstate(divide='ignore', invalid='ignore'):
-            absorbance = -np.log(sums / np.max(sums))  # Normalize then -log
-            absorbance[~np.isfinite(absorbance)] = 0  # Replace inf/nan with 0
-
-        self._last_calib = (energies, absorbance)
+        self._last_calib = (energies, sums)  # store raw sums; -log applied on save/load
         self.btn_calibrate.setEnabled(True)
         self.btn_save_calib.setEnabled(True)  # Enable save button
         self.btn_start.setEnabled(True)
