@@ -575,7 +575,11 @@ class ScanWorker(QThread):
 
         cid = pv.add_callback(_cb)
         try:
-            v = pv.get(timeout=1.0, use_monitor=True)
+            # Fresh CA read (use_monitor=False) — otherwise we may accept a
+            # stale cached value from before the most recent put. For an
+            # energy step of exactly `tol` this was the reason we'd return
+            # immediately and proceed while the mono was still moving.
+            v = pv.get(timeout=1.0, use_monitor=False)
             if v is not None and predicate(v):
                 return True
             deadline = time.time() + timeout
@@ -698,7 +702,10 @@ class ScanWorker(QThread):
     def _set_energy(self, e_value):
         units = self.pvs.get("energy_units", "keV")
         e_for_pv = e_value / 1000.0 if units == "keV" else e_value
-        self._put(self.pvs["energy_pv"], e_for_pv, wait=True, timeout=30.0)
+        # wait=False: this IOC does not fire put-completion on energy_pv, so
+        # wait=True would always time out (30 s per step). RBV is the real
+        # completion signal.
+        self._put(self.pvs["energy_pv"], e_for_pv, wait=False)
         if self.pvs.get("energy_set_pv"):
             self._put(self.pvs["energy_set_pv"], 1, wait=False)
         rb_pv = self.pvs.get("energy_rb_pv")
