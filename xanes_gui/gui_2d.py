@@ -707,6 +707,10 @@ class ScanWorker(QThread):
         # completion signal.
         self._put(self.pvs["energy_pv"], e_for_pv, wait=False)
         if self.pvs.get("energy_set_pv"):
+            # EnergySet is rising-edge triggered: if it's still 1 from the
+            # previous step, writing 1 again is a no-op and the mono doesn't
+            # move. Force 0 first to guarantee a clean 0→1 edge.
+            self._put(self.pvs["energy_set_pv"], 0, wait=False)
             self._put(self.pvs["energy_set_pv"], 1, wait=False)
         rb_pv = self.pvs.get("energy_rb_pv")
         if rb_pv:
