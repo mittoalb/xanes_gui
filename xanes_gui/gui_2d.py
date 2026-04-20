@@ -901,6 +901,12 @@ class ScanWorker(QThread):
             self.log.emit(f"Master file: {master_path}")
             self.log.emit(f"Scanning {total} energies "
                           f"({energies_eV[0]:.2f} → {energies_eV[-1]:.2f} eV)")
+            qg_every = int(self.params.get("qgmax_every_n", 0) or 0)
+            if qg_every > 0:
+                self.log.emit(f"QGMax: will trigger every {qg_every} point(s); "
+                              f"open the QGMax dialog in pystream now.")
+            else:
+                self.log.emit("QGMax: disabled (Run every N = 0)")
 
             self._configure_camera_once()
 
@@ -1039,7 +1045,13 @@ class ScanWorker(QThread):
                 # pointless to optimize after the scan is done).
                 every = int(self.params.get("qgmax_every_n", 0) or 0)
                 if every > 0 and i % every == 0 and i < total:
+                    self.log.emit(f"    QGMax trigger: step {i} (every {every})")
                     self._run_qgmax()
+                elif every > 0:
+                    # Help diagnose "no trigger" complaints.
+                    next_trigger = ((i // every) + 1) * every
+                    if next_trigger <= total:
+                        self.log.emit(f"    (next QGMax at step {next_trigger})")
 
             master.set_end_time()
             master.close()
