@@ -240,12 +240,26 @@ def epics_get(pv, as_string=True, timeout=3.0):
 
 _PVA_CH_CACHE = {}
 
-def pva_get_ndarray(det_pv):
+def _pva_channel(det_pv):
     ch = _PVA_CH_CACHE.get(det_pv)
     if ch is None:
         ch = pva.Channel(det_pv)
         _PVA_CH_CACHE[det_pv] = ch
-    st = ch.get()
+    return ch
+
+
+def _pva_unique_id(st):
+    try:
+        uid = st.get('uniqueId') if hasattr(st, 'get') else st['uniqueId']
+        return int(uid)
+    except Exception:
+        return None
+
+
+def _ndarray_from_struct(st):
+    """Decode an NTNDArray pvaccess struct into a 2-D ndarray (same logic as
+    the previous pva_get_ndarray, factored out so callers can inspect uniqueId
+    before extracting the pixels)."""
     val = st['value'][0]
     flat = None
     for key in ('ushortValue', 'shortValue', 'intValue', 'floatValue',
@@ -256,13 +270,11 @@ def pva_get_ndarray(det_pv):
     if flat is None:
         raise RuntimeError("Unsupported NTNDArray numeric type")
 
-    # Try dims from common structures; fall back to factor pairs.
     dims = []
     try:
         dims = st['dimension']
     except Exception:
         pass
-
     if len(dims) >= 2:
         h = int(dims[0]['size'])
         w = int(dims[1]['size'])
@@ -283,13 +295,44 @@ def pva_get_ndarray(det_pv):
     except Exception:
         pass
 
-    # Last-resort factor pair
     n = flat.size
     for h in range(int(np.sqrt(n)), 0, -1):
         if n % h == 0:
             return flat.reshape(h, n // h)
     side = int(np.sqrt(flat.size))
     return flat.reshape(side, flat.size // side)
+
+
+def pva_current_unique_id(det_pv):
+    try:
+        return _pva_unique_id(_pva_channel(det_pv).get())
+    except Exception:
+        return None
+
+
+def pva_wait_for_new(det_pv, prev_uid, timeout):
+    """Block until the PVA server publishes a frame with uniqueId != prev_uid.
+    Returns (ndarray, new_uid) on success, (None, None) on timeout."""
+    ch = _pva_channel(det_pv)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            st = ch.get()
+            uid = _pva_unique_id(st)
+            if uid is not None and uid != prev_uid:
+                return _ndarray_from_struct(st), uid
+            # If the server doesn't expose uniqueId, fall back to returning
+            # whatever we got — still better than the previous 30s hang.
+            if uid is None:
+                return _ndarray_from_struct(st), None
+        except Exception:
+            pass
+        time.sleep(0.005)
+    return None, None
+
+
+def pva_get_ndarray(det_pv):
+    return _ndarray_from_struct(_pva_channel(det_pv).get())
 
 
 # ── master HDF5 writer ────────────────────────────────────────────────────
@@ -691,31 +734,24 @@ class ScanWorker(QThread):
         self._put(self.pvs["cam_acquire_time_pv"], float(self.scan["exposure_s"]))
 
     def _acquire_one(self):
+        # Snapshot the current PVA uniqueId BEFORE triggering, then block until
+        # the server publishes a frame with a different uniqueId. This is the
+        # only reliable completion signal across IOC flavours — cam_acquire_rbv
+        # can be a state-string, unpublished, or simply never transition in
+        # the way our poll expects.
+        det = self.pvs["detector_pv"]
+        prev_uid = pva_current_unique_id(det)
         self._put(self.pvs["cam_acquire_pv"], 1, wait=False)
-        rbv = self.pvs.get("cam_acquire_rbv_pv")
-        if rbv:
-            rbv_pv = self._pv(rbv)
-            exposure = float(self.scan["exposure_s"])
-            # Wait briefly for RBV to rise to 1 (Acquiring) so a stale cached 0
-            # from the previous frame doesn't make us think we're already done.
-            edge_deadline = time.time() + min(1.0, max(0.2, exposure))
-            while time.time() < edge_deadline:
-                if self._stop:
-                    return None
-                v = rbv_pv.get(use_monitor=False, timeout=0.2)
-                if v is not None and int(float(v)) == 1:
-                    break
-                time.sleep(0.01)
-            # Now wait for RBV → 0 (Done).
-            deadline = time.time() + max(30.0, exposure * 3 + 10)
-            while time.time() < deadline:
-                if self._stop:
-                    return None
-                v = rbv_pv.get(use_monitor=False, timeout=0.2)
-                if v is not None and int(float(v)) == 0:
-                    break
-                time.sleep(0.02)
-        return pva_get_ndarray(self.pvs["detector_pv"])
+        exposure = float(self.scan["exposure_s"])
+        img, _ = pva_wait_for_new(det, prev_uid,
+                                  timeout=max(5.0, exposure * 3 + 5))
+        if img is None and self._stop:
+            return None
+        if img is None:
+            # Last-resort fallback: return current frame even if uid didn't
+            # advance, so the scan doesn't hang on a misconfigured detector.
+            return pva_get_ndarray(det)
+        return img
 
     def run(self):
         try:
