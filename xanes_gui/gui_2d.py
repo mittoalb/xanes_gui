@@ -28,20 +28,20 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 import h5py
 import numpy as np
 import epics
 import pvaccess as pva
-import pyqtgraph as pg
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                              QFileDialog, QFrame, QGroupBox, QHBoxLayout,
                              QLabel, QLineEdit, QMainWindow, QMessageBox,
                              QProgressBar, QPushButton, QRadioButton,
-                             QScrollArea, QSplitter, QTabWidget, QTextEdit,
+                             QScrollArea, QTabWidget, QTextEdit,
                              QVBoxLayout, QWidget)
 
 
@@ -188,6 +188,28 @@ def zp_motor_position_mm(energy_eV, L_mm, diameter_um, drn_nm,
     return (L_mm - disc ** 0.5) / 2.0 + eps_mm
 
 
+def zp_motor_from_cal(energy_eV, cal_points):
+    """Interpolate ZP motor position directly from calibration measurements.
+
+    `cal_points` is a list of [E_eV, motor_mm] pairs captured by the TXM
+    Optics Calculator's calibration dialog. Uses cubic interpolation when
+    ≥4 points are available and scipy is present, else linear. Returns
+    None if there are fewer than 2 points."""
+    if not cal_points or len(cal_points) < 2:
+        return None
+    pts = sorted(((float(E), float(m)) for E, m in cal_points), key=lambda p: p[0])
+    Es = np.array([p[0] for p in pts])
+    Ms = np.array([p[1] for p in pts])
+    if len(pts) >= 4:
+        try:
+            from scipy.interpolate import CubicSpline
+            cs = CubicSpline(Es, Ms, extrapolate=True)
+            return float(cs(energy_eV))
+        except Exception:
+            pass
+    return float(np.interp(energy_eV, Es, Ms))
+
+
 # ── EPICS helpers (pyepics) ───────────────────────────────────────────────
 
 def epics_put(pv, value, wait=True, timeout=15.0):
@@ -216,8 +238,13 @@ def epics_get(pv, as_string=True, timeout=3.0):
 
 # ── PVA image grab (copied from gui.py, trimmed) ──────────────────────────
 
+_PVA_CH_CACHE = {}
+
 def pva_get_ndarray(det_pv):
-    ch = pva.Channel(det_pv)
+    ch = _PVA_CH_CACHE.get(det_pv)
+    if ch is None:
+        ch = pva.Channel(det_pv)
+        _PVA_CH_CACHE[det_pv] = ch
     st = ch.get()
     val = st['value'][0]
     flat = None
@@ -431,7 +458,6 @@ class MasterH5:
 class ScanWorker(QThread):
     progress = pyqtSignal(int, int)         # (step index 1-based, total)
     log = pyqtSignal(str)
-    image_data = pyqtSignal(object, str)    # (ndarray, 'data'|'flat')
     error = pyqtSignal(str)
     done = pyqtSignal(str)                  # master file path
 
@@ -441,22 +467,39 @@ class ScanWorker(QThread):
         self.scan = scan                  # dict with positions, energies, etc.
         self.params = params              # dict with ZP, geometry, output
         self._stop = False
+        self._pv_cache = {}               # cached epics.PV objects
 
     def stop(self):
         self._stop = True
 
     # EPICS helpers
+    def _pv(self, pvname):
+        """Return a connected, cached epics.PV. Fresh connects are slow;
+        reusing PV objects makes subsequent .get/.put ~instant."""
+        if not pvname:
+            return None
+        pv = self._pv_cache.get(pvname)
+        if pv is None:
+            pv = epics.PV(pvname, auto_monitor=True)
+            pv.wait_for_connection(timeout=3.0)
+            self._pv_cache[pvname] = pv
+        return pv
+
     def _put(self, pv, val, wait=True, timeout=15.0):
         if not pv:
             return
-        epics.caput(pv, val, wait=wait, timeout=timeout)
+        p = self._pv(pv)
+        if p is None:
+            return
+        p.put(val, wait=wait, timeout=timeout)
 
     def _get_float(self, pv, default=None):
         if not pv:
             return default
         try:
-            v = epics.caget(pv, timeout=2.0)
-            return None if v is None else float(v)
+            p = self._pv(pv)
+            v = p.get(timeout=1.0, use_monitor=True) if p else None
+            return default if v is None else float(v)
         except Exception:
             return default
 
@@ -464,10 +507,46 @@ class ScanWorker(QThread):
         if not pv:
             return default
         try:
-            v = epics.caget(pv, as_string=True, timeout=2.0)
+            p = self._pv(pv)
+            v = p.get(as_string=True, timeout=1.0, use_monitor=True) if p else None
             return default if v is None else str(v)
         except Exception:
             return default
+
+    def _wait_for(self, pvname, predicate, timeout):
+        """Event-driven wait: return True once predicate(value) holds.
+        Uses PV monitor callbacks instead of caget polling."""
+        pv = self._pv(pvname)
+        if pv is None:
+            return False
+        ev = threading.Event()
+        hit = [False]
+
+        def _cb(value=None, **_):
+            try:
+                if predicate(value):
+                    hit[0] = True
+                    ev.set()
+            except Exception:
+                pass
+
+        cid = pv.add_callback(_cb)
+        try:
+            v = pv.get(timeout=1.0, use_monitor=True)
+            if v is not None and predicate(v):
+                return True
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                if self._stop:
+                    return False
+                if ev.wait(0.1):
+                    return hit[0]
+            return False
+        finally:
+            try:
+                pv.remove_callback(cid)
+            except Exception:
+                pass
 
     def _rbv(self, motor_pv):
         """Read `.RBV` field of a motor PV, falling back to the plain PV."""
@@ -579,30 +658,25 @@ class ScanWorker(QThread):
         self._put(self.pvs["energy_pv"], e_for_pv, wait=True, timeout=30.0)
         if self.pvs.get("energy_set_pv"):
             self._put(self.pvs["energy_set_pv"], 1, wait=False)
-        # Wait for readback
         rb_pv = self.pvs.get("energy_rb_pv")
-        tol = float(self.pvs.get("energy_tol", 0.001))
-        deadline = time.time() + 30.0
-        while rb_pv and time.time() < deadline:
-            if self._stop:
-                return
-            try:
-                rb = float(epics.caget(rb_pv, timeout=2.0))
-                if abs(rb - e_for_pv) <= tol:
-                    break
-            except Exception:
-                pass
-            time.sleep(0.05)
+        if rb_pv:
+            tol = float(self.pvs.get("energy_tol", 0.001))
+            self._wait_for(rb_pv,
+                           lambda v: v is not None and abs(float(v) - e_for_pv) <= tol,
+                           timeout=30.0)
         time.sleep(float(self.params.get("post_energy_settle_s", 2.0)))
 
     def _set_zp_for_energy(self, energy_eV):
         p = self.params
-        L = p["camera_distance_mm"] + zp_focal_length_mm(
-            energy_eV, p["zp_diameter_um"], p["zp_drn_nm"],
-            p["mono_offset_eV"])
-        s = zp_motor_position_mm(
-            energy_eV, L, p["zp_diameter_um"], p["zp_drn_nm"],
-            p["mono_offset_eV"], p["zp_eps_mm"])
+        cal = p.get("zp_cal_points")
+        s = zp_motor_from_cal(energy_eV, cal) if cal else None
+        if s is None:
+            L = p["camera_distance_mm"] + zp_focal_length_mm(
+                energy_eV, p["zp_diameter_um"], p["zp_drn_nm"],
+                p["mono_offset_eV"])
+            s = zp_motor_position_mm(
+                energy_eV, L, p["zp_diameter_um"], p["zp_drn_nm"],
+                p["mono_offset_eV"], p["zp_eps_mm"])
         if s is None:
             raise ValueError(f"No ZP solution at {energy_eV:.2f} eV")
         self._move_motor(self.pvs["zp_motor_pv"], s,
@@ -616,17 +690,13 @@ class ScanWorker(QThread):
         self._put(self.pvs["cam_acquire_pv"], 1, wait=False)
 
         rbv = self.pvs.get("cam_acquire_rbv_pv")
-        deadline = time.time() + max(30.0, float(self.scan["exposure_s"]) * 3 + 10)
-        while time.time() < deadline:
-            if self._stop:
+        if rbv:
+            timeout = max(30.0, float(self.scan["exposure_s"]) * 3 + 10)
+            ok = self._wait_for(rbv,
+                                lambda v: v is not None and float(v) == 0.0,
+                                timeout=timeout)
+            if not ok and self._stop:
                 return None
-            try:
-                if float(epics.caget(rbv, timeout=2.0)) == 0.0:
-                    break
-            except Exception:
-                pass
-            time.sleep(0.05)
-        time.sleep(0.1)  # small settle before PVA grab
         return pva_get_ndarray(self.pvs["detector_pv"])
 
     def run(self):
@@ -686,7 +756,6 @@ class ScanWorker(QThread):
                 if data_img is None:
                     break
                 master.append_data(data_img)
-                self.image_data.emit(data_img, "data")
 
                 if not instrument_snapshot_written:
                     snap = self._collect_instrument_snapshot(data_img.shape)
@@ -713,7 +782,6 @@ class ScanWorker(QThread):
                 if flat_img is None:
                     break
                 master.append_flat(flat_img)
-                self.image_data.emit(flat_img, "flat")
 
                 master.append_meta(
                     e_eV, zp,
@@ -808,23 +876,7 @@ class Xanes2DGui(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
 
-        split = QSplitter(Qt.Horizontal)
-        split.setHandleWidth(8)
-        lay.addWidget(split, stretch=1)
-
-        # LEFT: live image view
-        view_container = QWidget()
-        vbox = QVBoxLayout(view_container)
-        self.img_label = QLabel("Last frame: —")
-        vbox.addWidget(self.img_label)
-        self.img_view = pg.ImageView()
-        self.img_view.ui.histogram.hide()
-        self.img_view.ui.roiBtn.hide()
-        self.img_view.ui.menuBtn.hide()
-        vbox.addWidget(self.img_view)
-        split.addWidget(view_container)
-
-        # RIGHT: scan-config side panel
+        # scan-config side panel
         side = QWidget()
         sl = QVBoxLayout(side)
         sl.setContentsMargins(10, 10, 10, 10)
@@ -1021,9 +1073,7 @@ class Xanes2DGui(QMainWindow):
         sl.addWidget(out_box)
 
         sl.addStretch()
-        split.addWidget(side)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
+        lay.addWidget(side, stretch=1)
 
         # Progress + buttons
         self.progress = QProgressBar()
@@ -1187,12 +1237,13 @@ class Xanes2DGui(QMainWindow):
             "topz_ref_mm": float(self.topz_ref.text()),
             "rot_ref_deg": self._read_opt_float(self.rot_ref, None),
         }
-        diameter, _drn_nominal, drn_eff, eps_mm = self._current_zp_values()
+        diameter, _drn_nominal, drn_eff, eps_mm, cal_points = self._current_zp_values()
         params = {
             "zp_name": self.zp_combo.currentText(),
             "zp_diameter_um": float(diameter),
             "zp_drn_nm":      float(drn_eff),
             "zp_eps_mm":      float(eps_mm),
+            "zp_cal_points":  cal_points,
             "mono_offset_eV": float(self.mono_offset.text()),
             "camera_distance_mm": float(self.cam_dist.text()),
             "motor_settle_s": float(self.motor_settle.text()),
@@ -1223,7 +1274,19 @@ class Xanes2DGui(QMainWindow):
                  f"rot={scan['rot_data_deg']}")
         self.log(f"REF  pos: topx={scan['topx_ref_mm']}, topz={scan['topz_ref_mm']}, "
                  f"rot={scan['rot_ref_deg']}")
+        cal = params.get("zp_cal_points")
+        if cal:
+            self.log(f"ZP position source: measured calibration ({len(cal)} points)")
+        else:
+            self.log("ZP position source: analytical (drn_eff + eps_mm)")
         for i, e in enumerate(energies, 1):
+            if cal:
+                s = zp_motor_from_cal(e, cal)
+                if s is None:
+                    self.log(f"  [{i}] E={e:.2f} eV  (invalid)")
+                    continue
+                self.log(f"  [{i}] E={e:.2f} eV  ZP={s:.4f} mm  [cal]")
+                continue
             f = zp_focal_length_mm(e, params["zp_diameter_um"], params["zp_drn_nm"],
                                    params["mono_offset_eV"])
             if f is None:
@@ -1255,7 +1318,6 @@ class Xanes2DGui(QMainWindow):
         self._worker = ScanWorker(pvs, scan, params)
         self._worker.progress.connect(self._on_progress)
         self._worker.log.connect(self.log)
-        self._worker.image_data.connect(self._on_image)
         self._worker.error.connect(self._on_error)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -1267,10 +1329,6 @@ class Xanes2DGui(QMainWindow):
 
     def _on_progress(self, i, total):
         self.progress.setValue(i)
-
-    def _on_image(self, img, kind):
-        self.img_label.setText(f"Last frame: {kind}  shape={img.shape} dtype={img.dtype}")
-        self.img_view.setImage(img.T if img.ndim == 2 else img, autoLevels=True)
 
     def _on_error(self, msg):
         self.log(msg)
@@ -1415,11 +1473,14 @@ class Xanes2DGui(QMainWindow):
         drn_nominal = float(zp.get("drn", DEFAULTS["zp_drn_nm"]))
         drn_eff = float(zp.get("drn_eff", drn_nominal))
         eps_mm = float(zp.get("eps_mm", 0.0))
+        cal = zp.get("cal_points")
+        cal_points = cal.get("points") if isinstance(cal, dict) else None
         self._zp_cached_nominal = {
             "zp_diameter_um": diameter,
             "drn_nominal": drn_nominal,
             "drn_eff_file": drn_eff,
             "eps_mm_file": eps_mm,
+            "cal_points": cal_points,
         }
         # Respect a saved-settings override if present; otherwise take from file.
         saved_drn = getattr(self, "_saved_zp_drn_override", None)
@@ -1456,10 +1517,12 @@ class Xanes2DGui(QMainWindow):
                       else DEFAULTS["zp_eps_mm"])
         drn_nominal = (self._zp_cached_nominal["drn_nominal"]
                        if hasattr(self, "_zp_cached_nominal") else drn_eff)
-        return diameter, drn_nominal, drn_eff, eps_mm
+        cal_points = (self._zp_cached_nominal.get("cal_points")
+                      if hasattr(self, "_zp_cached_nominal") else None)
+        return diameter, drn_nominal, drn_eff, eps_mm, cal_points
 
     def _update_zp_info_label(self):
-        diameter, drn_nominal, drn_eff, eps_mm = self._current_zp_values()
+        diameter, drn_nominal, drn_eff, eps_mm, _cal = self._current_zp_values()
         src_drn = "file"
         src_eps = "file"
         if hasattr(self, "_zp_cached_nominal"):
