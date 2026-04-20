@@ -754,6 +754,44 @@ class ScanWorker(QThread):
                 )
         time.sleep(float(self.params.get("post_energy_settle_s", 2.0)))
 
+    def _wait_mono_reach(self, e_value_eV, timeout=180.0):
+        """Drive the mono to `e_value_eV` and *verify* the RBV actually lands
+        within tolerance. Raises RuntimeError if the mono doesn't get there.
+
+        Used for the pre-scan warmup — we don't want the scan loop to start
+        acquiring while the mono is still traveling, which is what happens
+        when `_set_energy`'s internal 30 s wait times out silently."""
+        units = self.pvs.get("energy_units", "keV")
+        target_pv = e_value_eV / 1000.0 if units == "keV" else e_value_eV
+        rb_pv = self.pvs.get("energy_rb_pv")
+        tol = float(self.pvs.get("energy_tol", 0.001))
+
+        # Issue the move (non-blocking; this IOC doesn't fire put-completion
+        # on energy_pv — RBV is the real completion signal).
+        self._put(self.pvs["energy_pv"], target_pv, wait=False)
+        if self.pvs.get("energy_set_pv"):
+            self._put(self.pvs["energy_set_pv"], 0, wait=False)
+            self._put(self.pvs["energy_set_pv"], 1, wait=False)
+
+        if not rb_pv:
+            time.sleep(float(self.params.get("post_energy_settle_s", 2.0)))
+            return
+
+        matched = self._wait_for(
+            rb_pv,
+            lambda v: v is not None and abs(float(v) - target_pv) <= tol,
+            timeout=timeout,
+        )
+        final = self._get_float(rb_pv)
+        if not matched:
+            raise RuntimeError(
+                f"Mono did not reach {e_value_eV:.2f} eV within {timeout:.0f}s "
+                f"(RBV = {final!r}, target = {target_pv:g} {units}, "
+                f"tol = {tol:g}). Check the mono, then restart the scan."
+            )
+        time.sleep(float(self.params.get("post_energy_settle_s", 2.0)))
+        self.log.emit(f"    mono RBV = {final:g} {units}")
+
     def _set_zp_for_energy(self, energy_eV):
         p = self.params
         cal = p.get("zp_cal_points")
@@ -866,13 +904,15 @@ class ScanWorker(QThread):
 
             self._configure_camera_once()
 
-            # Warmup: prime the mono so the first real move isn't timed
-            # against the per-step stopwatch. If first_E == current_E the
-            # move is a no-op; otherwise we pay the cold-start once, here.
+            # Warmup: move the mono to the starting energy before the timed
+            # loop. First real move of the session can be slow (hardware
+            # cold-start), so give it a generous deadline and halt the scan
+            # if the mono can't actually reach the starting energy.
             if energies_eV:
+                start_e = energies_eV[0]
+                self.log.emit(f"Warming mono to {start_e:.2f} eV…")
                 t_warm = time.time()
-                self.log.emit(f"Warming mono to {energies_eV[0]:.2f} eV…")
-                self._set_energy(energies_eV[0])
+                self._wait_mono_reach(start_e, timeout=180.0)
                 self.log.emit(f"Warmup done in {time.time() - t_warm:.1f}s")
 
             instrument_snapshot_written = False
