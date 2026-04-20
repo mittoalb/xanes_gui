@@ -270,11 +270,26 @@ def _pva_channel(det_pv):
 
 
 def _pva_unique_id(st):
+    """Best-effort NTNDArray uniqueId extraction across pvaccess versions."""
+    # 1) PvObject.toDict() is the most portable — returns plain numerics.
     try:
-        uid = st.get('uniqueId') if hasattr(st, 'get') else st['uniqueId']
-        return int(uid)
+        d = st.toDict()
+        if 'uniqueId' in d:
+            return int(d['uniqueId'])
     except Exception:
-        return None
+        pass
+    # 2) Item access — works on most pvaccess builds.
+    try:
+        return int(st['uniqueId'])
+    except Exception:
+        pass
+    # 3) getInt fallback — some pvaccess versions expose typed accessors.
+    for m in ('getInt', 'getLong', 'getULong'):
+        try:
+            return int(getattr(st, m)('uniqueId'))
+        except Exception:
+            pass
+    return None
 
 
 def _ndarray_from_struct(st):
@@ -331,23 +346,33 @@ def pva_current_unique_id(det_pv):
         return None
 
 
-def pva_wait_for_new(det_pv, prev_uid, timeout):
-    """Block until the PVA server publishes a frame with uniqueId != prev_uid.
-    Returns (ndarray, new_uid) on success, (None, None) on timeout."""
+def pva_wait_for_new(det_pv, prev_uid, timeout, min_elapsed=0.0):
+    """Block until the PVA server publishes a *new* frame.
+
+    Guarantees at least `min_elapsed` seconds pass before a frame is returned —
+    this is the "floor" we need to avoid grabbing a stale cached frame on
+    detectors whose NTNDArray doesn't expose a usable `uniqueId`. If uniqueId
+    *is* exposed, also waits for it to differ from `prev_uid`.
+    Returns (ndarray, new_uid_or_None) on success, (None, None) on timeout."""
     ch = _pva_channel(det_pv)
-    deadline = time.time() + timeout
+    t0 = time.time()
+    deadline = t0 + timeout
     while time.time() < deadline:
         try:
             st = ch.get()
             uid = _pva_unique_id(st)
-            if uid is not None and uid != prev_uid:
-                return _ndarray_from_struct(st), uid
-            # If the server doesn't expose uniqueId, fall back to returning
-            # whatever we got — still better than the previous 30s hang.
-            if uid is None:
-                return _ndarray_from_struct(st), None
         except Exception:
-            pass
+            time.sleep(0.01)
+            continue
+        elapsed = time.time() - t0
+        if elapsed < min_elapsed:
+            time.sleep(0.005)
+            continue
+        if uid is None:
+            # No uniqueId available; floor already elapsed, accept.
+            return _ndarray_from_struct(st), None
+        if uid != prev_uid:
+            return _ndarray_from_struct(st), uid
         time.sleep(0.005)
     return None, None
 
@@ -868,16 +893,19 @@ class ScanWorker(QThread):
 
     def _acquire_one(self):
         # Snapshot the current PVA uniqueId BEFORE triggering, then block until
-        # the server publishes a frame with a different uniqueId. This is the
-        # only reliable completion signal across IOC flavours — cam_acquire_rbv
-        # can be a state-string, unpublished, or simply never transition in
-        # the way our poll expects.
+        # the server publishes a frame with a different uniqueId *and* at least
+        # exposure time has passed. The elapsed-floor guarantees we don't grab
+        # the stale cached frame on detectors whose uniqueId isn't usable —
+        # which was the cause of data_flat == data.
         det = self.pvs["detector_pv"]
         prev_uid = pva_current_unique_id(det)
         self._put(self.pvs["cam_acquire_pv"], 1, wait=False)
         exposure = float(self.scan["exposure_s"])
-        img, _ = pva_wait_for_new(det, prev_uid,
-                                  timeout=max(5.0, exposure * 3 + 5))
+        img, _ = pva_wait_for_new(
+            det, prev_uid,
+            timeout=max(5.0, exposure * 3 + 5),
+            min_elapsed=exposure + 0.2,
+        )
         if img is None and self._stop:
             return None
         if img is None:
