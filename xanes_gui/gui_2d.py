@@ -692,15 +692,29 @@ class ScanWorker(QThread):
 
     def _acquire_one(self):
         self._put(self.pvs["cam_acquire_pv"], 1, wait=False)
-
         rbv = self.pvs.get("cam_acquire_rbv_pv")
         if rbv:
-            timeout = max(30.0, float(self.scan["exposure_s"]) * 3 + 10)
-            ok = self._wait_for(rbv,
-                                lambda v: v is not None and float(v) == 0.0,
-                                timeout=timeout)
-            if not ok and self._stop:
-                return None
+            rbv_pv = self._pv(rbv)
+            exposure = float(self.scan["exposure_s"])
+            # Wait briefly for RBV to rise to 1 (Acquiring) so a stale cached 0
+            # from the previous frame doesn't make us think we're already done.
+            edge_deadline = time.time() + min(1.0, max(0.2, exposure))
+            while time.time() < edge_deadline:
+                if self._stop:
+                    return None
+                v = rbv_pv.get(use_monitor=False, timeout=0.2)
+                if v is not None and int(float(v)) == 1:
+                    break
+                time.sleep(0.01)
+            # Now wait for RBV → 0 (Done).
+            deadline = time.time() + max(30.0, exposure * 3 + 10)
+            while time.time() < deadline:
+                if self._stop:
+                    return None
+                v = rbv_pv.get(use_monitor=False, timeout=0.2)
+                if v is not None and int(float(v)) == 0:
+                    break
+                time.sleep(0.02)
         return pva_get_ndarray(self.pvs["detector_pv"])
 
     def run(self):
@@ -730,18 +744,22 @@ class ScanWorker(QThread):
                 t0 = time.time()
                 self.log.emit(f"[{i}/{total}] E = {e_eV:.2f} eV")
 
+                tE = time.time()
                 self._set_energy(e_eV)
                 if self._stop:
                     break
                 energy_rbv = self._get_float(self.pvs.get("energy_rb_pv"))
                 if energy_rbv is not None and self.pvs.get("energy_units") == "keV":
                     energy_rbv *= 1000.0  # store readback in eV
+                t_energy = time.time() - tE
 
+                tZ = time.time()
                 zp = self._set_zp_for_energy(e_eV)
-                self.log.emit(f"    ZP motor → {zp:.4f} mm")
                 zp_rbv = self._rbv(self.pvs.get("zp_motor_pv")) or zp
+                t_zp = time.time() - tZ
 
                 # DATA
+                tM = time.time()
                 if self.scan.get("rot_data_deg") is not None:
                     self._move_motor(self.pvs["rot_pv"],
                                      self.scan["rot_data_deg"],
@@ -756,11 +774,17 @@ class ScanWorker(QThread):
                 data_topx_rbv = self._rbv(self.pvs.get("topx_pv"))
                 data_topz_rbv = self._rbv(self.pvs.get("topz_pv"))
                 data_rot_rbv = self._rbv(self.pvs.get("rot_pv"))
+                t_move_data = time.time() - tM
 
+                tA = time.time()
                 data_img = self._acquire_one()
                 if data_img is None:
                     break
+                t_acq_data = time.time() - tA
+
+                tS = time.time()
                 master.append_data(data_img)
+                t_save_data = time.time() - tS
 
                 if not instrument_snapshot_written:
                     snap = self._collect_instrument_snapshot(data_img.shape)
@@ -768,6 +792,7 @@ class ScanWorker(QThread):
                     instrument_snapshot_written = True
 
                 # REF / FLAT
+                tM2 = time.time()
                 self._move_motor(self.pvs["topx_pv"], self.scan["topx_ref_mm"],
                                  self.params["motor_settle_s"])
                 self._move_motor(self.pvs["topz_pv"], self.scan["topz_ref_mm"],
@@ -782,12 +807,16 @@ class ScanWorker(QThread):
                 ref_topx_rbv = self._rbv(self.pvs.get("topx_pv"))
                 ref_topz_rbv = self._rbv(self.pvs.get("topz_pv"))
                 ref_rot_rbv = self._rbv(self.pvs.get("rot_pv"))
+                t_move_ref = time.time() - tM2
 
+                tA2 = time.time()
                 flat_img = self._acquire_one()
                 if flat_img is None:
                     break
-                master.append_flat(flat_img)
+                t_acq_flat = time.time() - tA2
 
+                tS2 = time.time()
+                master.append_flat(flat_img)
                 master.append_meta(
                     e_eV, zp,
                     self.scan.get("rot_data_deg"),
@@ -806,6 +835,7 @@ class ScanWorker(QThread):
                     "step_time_s": time.time() - t0,
                 })
                 master.flush()
+                t_save_flat = time.time() - tS2
 
                 # Return to data rotation for next step if we rotated for ref
                 if (self.scan.get("rot_ref_deg") is not None
@@ -815,7 +845,14 @@ class ScanWorker(QThread):
                                      self.params["motor_settle_s"])
 
                 self.progress.emit(i, total)
-                self.log.emit(f"    step time: {time.time() - t0:.1f} s")
+                step_total = time.time() - t0
+                self.log.emit(
+                    f"    step {step_total:.2f}s  "
+                    f"[E {t_energy:.2f} | ZP {t_zp:.2f} | "
+                    f"mv {t_move_data:.2f}/{t_move_ref:.2f} | "
+                    f"acq {t_acq_data:.2f}/{t_acq_flat:.2f} | "
+                    f"save {t_save_data:.2f}/{t_save_flat:.2f}]"
+                )
 
             master.set_end_time()
             master.close()
