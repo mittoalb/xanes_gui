@@ -162,8 +162,8 @@ DEFAULTS = {
     # Output
     "save_dir":        os.path.expanduser("~/scans"),
     "master_h5_name":  "xanes2d_scan.h5",
-    "hdf5_compression": "lzf",   # lzf: ~3-5× faster than gzip-3, slightly larger
-    "hdf5_gzip_level": 3,
+    "hdf5_compression": None,    # uncompressed: fastest writes, fully portable
+    "hdf5_gzip_level": 1,
 }
 
 
@@ -711,9 +711,22 @@ class ScanWorker(QThread):
         rb_pv = self.pvs.get("energy_rb_pv")
         if rb_pv:
             tol = float(self.pvs.get("energy_tol", 0.001))
-            self._wait_for(rb_pv,
-                           lambda v: v is not None and abs(float(v) - e_for_pv) <= tol,
-                           timeout=30.0)
+            t_wait = time.time()
+            matched = self._wait_for(
+                rb_pv,
+                lambda v: v is not None and abs(float(v) - e_for_pv) <= tol,
+                timeout=30.0,
+            )
+            if not matched and not self._stop:
+                final = self._get_float(rb_pv)
+                waited = time.time() - t_wait
+                self.log.emit(
+                    f"    energy wait timed out after {waited:.1f}s: "
+                    f"target={e_for_pv:g} RBV={final!r} tol={tol:g} "
+                    f"(Δ={abs(float(final) - e_for_pv):g} if readable). "
+                    f"Raise 'energy_tol' in the PVs tab if the mono settles "
+                    f"slightly off-target."
+                )
         time.sleep(float(self.params.get("post_energy_settle_s", 2.0)))
 
     def _set_zp_for_energy(self, energy_eV):
@@ -777,6 +790,16 @@ class ScanWorker(QThread):
                           f"({energies_eV[0]:.2f} → {energies_eV[-1]:.2f} eV)")
 
             self._configure_camera_once()
+
+            # Warmup: prime the mono so the first real move isn't timed
+            # against the per-step stopwatch. If first_E == current_E the
+            # move is a no-op; otherwise we pay the cold-start once, here.
+            if energies_eV:
+                t_warm = time.time()
+                self.log.emit(f"Warming mono to {energies_eV[0]:.2f} eV…")
+                self._set_energy(energies_eV[0])
+                self.log.emit(f"Warmup done in {time.time() - t_warm:.1f}s")
+
             instrument_snapshot_written = False
 
             for i, e_eV in enumerate(energies_eV, start=1):
