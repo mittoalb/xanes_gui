@@ -41,7 +41,8 @@ from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                              QFileDialog, QFrame, QGroupBox, QHBoxLayout,
                              QLabel, QLineEdit, QMainWindow, QMessageBox,
                              QProgressBar, QPushButton, QRadioButton,
-                             QScrollArea, QTabWidget, QTextEdit,
+                             QScrollArea, QTableWidget, QTableWidgetItem,
+                             QTabWidget, QTextEdit,
                              QVBoxLayout, QWidget)
 
 
@@ -752,33 +753,33 @@ class ScanWorker(QThread):
 
     def _run_qgmax(self):
         """Trigger QGMax (running inside pystream) and block until it finishes.
-        Uses QGMax's *own* configured motors/steps/thresholds — we just tell
-        it when to run via its status PV."""
-        pv_name = self.params.get("qgmax_pv", "").strip()
-        if not pv_name:
-            return
+        Uses a small JSON file as the handshake: the EPICS status PV isn't
+        reliably routable from the XANES2D subprocess in practice."""
         timeout = float(self.params.get("qgmax_timeout_s", 300.0))
+        trigger_path = os.path.expanduser("~/.pystream_qgmax_trigger.json")
+        payload = {"request": "START", "ts": time.time()}
         try:
-            epics.caput(pv_name, "START", wait=False)
+            with open(trigger_path, "w") as fh:
+                json.dump(payload, fh)
         except Exception as ex:
-            self.log.emit(f"QGMax trigger failed: {ex}")
+            self.log.emit(f"QGMax trigger file write failed: {ex}")
             return
         self.log.emit("    QGMax: waiting for completion…")
         t0 = time.time()
-        # QGMax sets the PV to "Busy" while running and "Done" (or "Idle")
-        # when finished. Block until one of those terminal states — or timeout.
         while time.time() - t0 < timeout:
             if self._stop:
                 return
             try:
-                v = epics.caget(pv_name, as_string=True, timeout=1.0)
+                with open(trigger_path) as fh:
+                    state = json.load(fh)
             except Exception:
-                v = None
-            if v is not None and v.upper() in ("DONE", "IDLE"):
-                self.log.emit(f"    QGMax: {v} ({time.time()-t0:.1f}s)")
+                state = {}
+            if state.get("status") == "DONE" and state.get("ts", 0) >= payload["ts"]:
+                self.log.emit(f"    QGMax: DONE ({time.time()-t0:.1f}s)")
                 return
             time.sleep(0.5)
-        self.log.emit(f"    QGMax: timed out after {timeout:.0f}s")
+        self.log.emit(f"    QGMax: timed out after {timeout:.0f}s "
+                      f"(is the QGMax dialog open in pystream?)")
 
     def _configure_camera_once(self):
         """Set NumImages/ImageMode/AcquireTime a single time at scan start
@@ -1146,6 +1147,46 @@ class Xanes2DGui(QMainWindow):
         zl.addWidget(self.optics_src_label)
         zp_box.setLayout(zl)
         sl.addWidget(zp_box)
+
+        # Local ZP calibration table — saved (E, ZP) points interpolated at
+        # scan time when "Use this table" is checked. Lives in the settings
+        # file so it persists across sessions.
+        cal_box = QGroupBox("Local ZP calibration table")
+        cl = QVBoxLayout()
+        row_ctl = QHBoxLayout()
+        self.cal_use_chk = QCheckBox("Use this table (overrides optics_config cal)")
+        self.cal_use_chk.setToolTip(
+            "When enabled, the scan interpolates the ZP position through the "
+            "points in this table instead of the analytical formula or "
+            "optics_config.json cal_points.")
+        row_ctl.addWidget(self.cal_use_chk)
+        row_ctl.addStretch()
+        cl.addLayout(row_ctl)
+
+        self.cal_table = QTableWidget(0, 2)
+        self.cal_table.setHorizontalHeaderLabels(["Energy [eV]", "ZP [mm]"])
+        self.cal_table.horizontalHeader().setStretchLastSection(True)
+        self.cal_table.setMaximumHeight(160)
+        cl.addWidget(self.cal_table)
+
+        row_btn = QHBoxLayout()
+        self.btn_cal_save = QPushButton("Save current E + ZP")
+        self.btn_cal_save.setToolTip(
+            "Read the current energy RBV and ZP motor RBV from EPICS and "
+            "append a new row to this table.")
+        self.btn_cal_save.clicked.connect(self._on_cal_save)
+        row_btn.addWidget(self.btn_cal_save)
+        self.btn_cal_remove = QPushButton("Remove selected")
+        self.btn_cal_remove.clicked.connect(self._on_cal_remove)
+        row_btn.addWidget(self.btn_cal_remove)
+        self.btn_cal_clear = QPushButton("Clear all")
+        self.btn_cal_clear.clicked.connect(self._on_cal_clear)
+        row_btn.addWidget(self.btn_cal_clear)
+        row_btn.addStretch()
+        cl.addLayout(row_btn)
+
+        cal_box.setLayout(cl)
+        sl.addWidget(cal_box)
 
         # Internal storage for selected ZP params
         self._optics_config = None
@@ -1546,6 +1587,8 @@ class Xanes2DGui(QMainWindow):
                 "qgmax_every": self.qgmax_every.text(),
                 "qgmax_pv": self.qgmax_pv.text(),
                 "qgmax_timeout": self.qgmax_timeout.text(),
+                "cal_use": self.cal_use_chk.isChecked(),
+                "cal_points": self._cal_table_points(),
             },
         }
         try:
@@ -1594,6 +1637,8 @@ class Xanes2DGui(QMainWindow):
         self.qgmax_every.setText(sc.get("qgmax_every", self.qgmax_every.text()))
         self.qgmax_pv.setText(sc.get("qgmax_pv", self.qgmax_pv.text()))
         self.qgmax_timeout.setText(sc.get("qgmax_timeout", self.qgmax_timeout.text()))
+        self.cal_use_chk.setChecked(bool(sc.get("cal_use", False)))
+        self._cal_table_set_points(sc.get("cal_points", []) or [])
         self.log(f"Settings loaded from {self.settings_file}")
 
     # ── optics_config (ZP params) ──────────────────────────────────────
@@ -1693,8 +1738,17 @@ class Xanes2DGui(QMainWindow):
                       else DEFAULTS["zp_eps_mm"])
         drn_nominal = (self._zp_cached_nominal["drn_nominal"]
                        if hasattr(self, "_zp_cached_nominal") else drn_eff)
-        cal_points = (self._zp_cached_nominal.get("cal_points")
-                      if hasattr(self, "_zp_cached_nominal") else None)
+        # Local table (if enabled) takes priority over optics_config cal_points.
+        if hasattr(self, "cal_use_chk") and self.cal_use_chk.isChecked():
+            local = self._cal_table_points()
+            if local and len(local) >= 2:
+                cal_points = local
+            else:
+                cal_points = (self._zp_cached_nominal.get("cal_points")
+                              if hasattr(self, "_zp_cached_nominal") else None)
+        else:
+            cal_points = (self._zp_cached_nominal.get("cal_points")
+                          if hasattr(self, "_zp_cached_nominal") else None)
         return diameter, drn_nominal, drn_eff, eps_mm, cal_points
 
     def _update_zp_info_label(self):
@@ -1711,6 +1765,72 @@ class Xanes2DGui(QMainWindow):
             f"Δrₙ eff = {drn_eff:g} nm [{src_drn}]   "
             f"ε = {eps_mm:+g} mm [{src_eps}]"
         )
+
+    # ── local ZP calibration table ─────────────────────────────────────
+    def _cal_table_points(self):
+        """Return the table contents as a [[E_eV, motor_mm], …] list,
+        skipping any rows that don't parse as numbers."""
+        pts = []
+        for row in range(self.cal_table.rowCount()):
+            e_item = self.cal_table.item(row, 0)
+            z_item = self.cal_table.item(row, 1)
+            if e_item is None or z_item is None:
+                continue
+            try:
+                pts.append([float(e_item.text()), float(z_item.text())])
+            except ValueError:
+                continue
+        return pts
+
+    def _cal_table_set_points(self, points):
+        self.cal_table.setRowCount(0)
+        for E, m in points:
+            self._cal_append_row(float(E), float(m))
+
+    def _cal_append_row(self, energy_eV, zp_mm):
+        row = self.cal_table.rowCount()
+        self.cal_table.insertRow(row)
+        self.cal_table.setItem(row, 0, QTableWidgetItem(f"{energy_eV:.3f}"))
+        self.cal_table.setItem(row, 1, QTableWidgetItem(f"{zp_mm:.6f}"))
+
+    def _on_cal_save(self):
+        """Read the current energy RBV and ZP motor RBV, append a row."""
+        pvs = {k: self.pv_edits[k].text().strip() for k in self.pv_edits}
+        rb_pv = pvs.get("energy_rb_pv")
+        zp_pv = pvs.get("zp_motor_pv")
+        if not rb_pv or not zp_pv:
+            QMessageBox.warning(self, "Missing PVs",
+                                "Set energy_rb_pv and zp_motor_pv in the PVs tab first.")
+            return
+        try:
+            e_val = float(epics.caget(rb_pv, timeout=2.0))
+            units = pvs.get("energy_units", "keV")
+            if units == "keV":
+                e_val *= 1000.0
+            # Motor RBV: prefer `.RBV`, fall back to the plain PV
+            zp_val = epics.caget(f"{zp_pv}.RBV", timeout=2.0)
+            if zp_val is None:
+                zp_val = epics.caget(zp_pv, timeout=2.0)
+            zp_val = float(zp_val)
+        except Exception as ex:
+            QMessageBox.warning(self, "Read failed",
+                                f"Could not read PVs: {ex}")
+            return
+        self._cal_append_row(e_val, zp_val)
+        self.log(f"Cal table: saved E={e_val:.2f} eV  ZP={zp_val:.4f} mm")
+
+    def _on_cal_remove(self):
+        rows = sorted({i.row() for i in self.cal_table.selectedIndexes()},
+                      reverse=True)
+        for r in rows:
+            self.cal_table.removeRow(r)
+
+    def _on_cal_clear(self):
+        if self.cal_table.rowCount() == 0:
+            return
+        if QMessageBox.question(self, "Clear calibration table",
+                                "Delete all rows?") == QMessageBox.Yes:
+            self.cal_table.setRowCount(0)
 
     # ── shared calibration curve ───────────────────────────────────────
     def _refresh_shared_curve_settings(self):
