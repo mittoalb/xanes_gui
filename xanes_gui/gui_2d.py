@@ -145,6 +145,8 @@ DEFAULTS = {
 
     # Motors
     "zp_motor_pv": "32id:m1",
+    "zp_x_pv":     "32idbTXM:mcs2:c1:m13.VAL",
+    "zp_z_pv":     "32idbTXM:mcs2:c1:m14.VAL",
     "topx_pv":     "32id:m2",
     "topz_pv":     "32id:m3",
     "rot_pv":      "32id:m4",
@@ -189,26 +191,44 @@ def zp_motor_position_mm(energy_eV, L_mm, diameter_um, drn_nm,
     return (L_mm - disc ** 0.5) / 2.0 + eps_mm
 
 
-def zp_motor_from_cal(energy_eV, cal_points):
-    """Interpolate ZP motor position directly from calibration measurements.
-
-    `cal_points` is a list of [E_eV, motor_mm] pairs captured by the TXM
-    Optics Calculator's calibration dialog. Uses cubic interpolation when
-    ≥4 points are available and scipy is present, else linear. Returns
-    None if there are fewer than 2 points."""
-    if not cal_points or len(cal_points) < 2:
-        return None
-    pts = sorted(((float(E), float(m)) for E, m in cal_points), key=lambda p: p[0])
-    Es = np.array([p[0] for p in pts])
-    Ms = np.array([p[1] for p in pts])
-    if len(pts) >= 4:
+def _interp_1d(energy_eV, Es, Ms):
+    """Cubic spline when ≥4 points (and scipy available), else linear."""
+    if len(Es) >= 4:
         try:
             from scipy.interpolate import CubicSpline
-            cs = CubicSpline(Es, Ms, extrapolate=True)
-            return float(cs(energy_eV))
+            return float(CubicSpline(Es, Ms, extrapolate=True)(energy_eV))
         except Exception:
             pass
     return float(np.interp(energy_eV, Es, Ms))
+
+
+def zp_motor_from_cal(energy_eV, cal_points, axis=1):
+    """Interpolate ZP motor position directly from calibration measurements.
+
+    `cal_points` is a list of rows; each row is either [E, ZP] (2 cols) or
+    [E, ZP, ZP_X, ZP_Z] (4 cols, with None allowed for missing axes). `axis`
+    selects the column: 1=ZP (along beam), 2=ZP X, 3=ZP Z. Returns None if
+    fewer than 2 rows have numeric values for the requested axis."""
+    if not cal_points or len(cal_points) < 2:
+        return None
+    Es, Ms = [], []
+    for row in cal_points:
+        if len(row) <= axis:
+            continue
+        try:
+            v = row[axis]
+            if v is None:
+                continue
+            Es.append(float(row[0]))
+            Ms.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    if len(Es) < 2:
+        return None
+    order = np.argsort(Es)
+    Es = np.array(Es)[order]
+    Ms = np.array(Ms)[order]
+    return _interp_1d(energy_eV, Es, Ms)
 
 
 # ── EPICS helpers (pyepics) ───────────────────────────────────────────────
@@ -737,7 +757,12 @@ class ScanWorker(QThread):
     def _set_zp_for_energy(self, energy_eV):
         p = self.params
         cal = p.get("zp_cal_points")
-        s = zp_motor_from_cal(energy_eV, cal) if cal else None
+        use_zp = bool(p.get("zp_cal_interp_zp", True))
+        use_zpx = bool(p.get("zp_cal_interp_zpx", False))
+        use_zpz = bool(p.get("zp_cal_interp_zpz", False))
+        settle = self.params.get("motor_settle_s", 0.5)
+
+        s = zp_motor_from_cal(energy_eV, cal, axis=1) if (cal and use_zp) else None
         if s is None:
             L = p["camera_distance_mm"] + zp_focal_length_mm(
                 energy_eV, p["zp_diameter_um"], p["zp_drn_nm"],
@@ -747,22 +772,37 @@ class ScanWorker(QThread):
                 p["mono_offset_eV"], p["zp_eps_mm"])
         if s is None:
             raise ValueError(f"No ZP solution at {energy_eV:.2f} eV")
-        self._move_motor(self.pvs["zp_motor_pv"], s,
-                         self.params.get("motor_settle_s", 0.5))
+        self._move_motor(self.pvs["zp_motor_pv"], s, settle)
+
+        # Transverse ZP axes — only when the table is providing values AND
+        # the per-axis toggle is on.
+        if cal and use_zpx and self.pvs.get("zp_x_pv"):
+            x_target = zp_motor_from_cal(energy_eV, cal, axis=2)
+            if x_target is not None:
+                self._move_motor(self.pvs["zp_x_pv"], x_target, settle)
+        if cal and use_zpz and self.pvs.get("zp_z_pv"):
+            z_target = zp_motor_from_cal(energy_eV, cal, axis=3)
+            if z_target is not None:
+                self._move_motor(self.pvs["zp_z_pv"], z_target, settle)
         return s
 
     def _run_qgmax(self):
         """Trigger QGMax (running inside pystream) and block until it finishes.
-        Uses a small JSON file as the handshake: the EPICS status PV isn't
-        reliably routable from the XANES2D subprocess in practice."""
+
+        Uses two files so neither side clobbers the other's state:
+          ~/.pystream_qgmax_request.json   — written by XANES2D, read by QGMax
+          ~/.pystream_qgmax_response.json  — written by QGMax,   read by XANES2D
+        Each request/response is tagged with the request timestamp so we only
+        unblock when QGMax has finished *our* request."""
         timeout = float(self.params.get("qgmax_timeout_s", 300.0))
-        trigger_path = os.path.expanduser("~/.pystream_qgmax_trigger.json")
-        payload = {"request": "START", "ts": time.time()}
+        req_path = os.path.expanduser("~/.pystream_qgmax_request.json")
+        resp_path = os.path.expanduser("~/.pystream_qgmax_response.json")
+        req_ts = time.time()
         try:
-            with open(trigger_path, "w") as fh:
-                json.dump(payload, fh)
+            with open(req_path, "w") as fh:
+                json.dump({"ts": req_ts}, fh)
         except Exception as ex:
-            self.log.emit(f"QGMax trigger file write failed: {ex}")
+            self.log.emit(f"QGMax request file write failed: {ex}")
             return
         self.log.emit("    QGMax: waiting for completion…")
         t0 = time.time()
@@ -770,11 +810,11 @@ class ScanWorker(QThread):
             if self._stop:
                 return
             try:
-                with open(trigger_path) as fh:
+                with open(resp_path) as fh:
                     state = json.load(fh)
             except Exception:
                 state = {}
-            if state.get("status") == "DONE" and state.get("ts", 0) >= payload["ts"]:
+            if float(state.get("last_completed_ts", 0) or 0) >= req_ts:
                 self.log.emit(f"    QGMax: DONE ({time.time()-t0:.1f}s)")
                 return
             time.sleep(0.5)
@@ -1148,25 +1188,36 @@ class Xanes2DGui(QMainWindow):
         zp_box.setLayout(zl)
         sl.addWidget(zp_box)
 
-        # Local ZP calibration table — saved (E, ZP) points interpolated at
-        # scan time when "Use this table" is checked. Lives in the settings
-        # file so it persists across sessions.
+        # Local ZP calibration table — saved (E, ZP, ZP X, ZP Z) points
+        # interpolated at scan time when "Use this table" is checked. Lives
+        # in the settings file so it persists across sessions. Each axis has
+        # its own toggle, so you can e.g. interpolate ZP only and leave X/Z
+        # alone for scans where the transverse alignment is already good.
         cal_box = QGroupBox("Local ZP calibration table")
         cl = QVBoxLayout()
         row_ctl = QHBoxLayout()
         self.cal_use_chk = QCheckBox("Use this table (overrides optics_config cal)")
         self.cal_use_chk.setToolTip(
-            "When enabled, the scan interpolates the ZP position through the "
-            "points in this table instead of the analytical formula or "
-            "optics_config.json cal_points.")
+            "When enabled, the scan interpolates ZP axes through the points "
+            "in this table instead of the analytical formula / optics_config "
+            "cal_points. Per-axis toggles below decide which axes move.")
         row_ctl.addWidget(self.cal_use_chk)
         row_ctl.addStretch()
+        self.cal_interp_zp = QCheckBox("Interp ZP")
+        self.cal_interp_zp.setChecked(True)
+        self.cal_interp_zpx = QCheckBox("Interp ZP X")
+        self.cal_interp_zpz = QCheckBox("Interp ZP Z")
+        for chk in (self.cal_interp_zp, self.cal_interp_zpx, self.cal_interp_zpz):
+            chk.setToolTip("If unchecked, this axis is left at its current "
+                           "position at every energy step.")
+            row_ctl.addWidget(chk)
         cl.addLayout(row_ctl)
 
-        self.cal_table = QTableWidget(0, 2)
-        self.cal_table.setHorizontalHeaderLabels(["Energy [eV]", "ZP [mm]"])
+        self.cal_table = QTableWidget(0, 4)
+        self.cal_table.setHorizontalHeaderLabels(
+            ["Energy [eV]", "ZP [mm]", "ZP X [mm]", "ZP Z [mm]"])
         self.cal_table.horizontalHeader().setStretchLastSection(True)
-        self.cal_table.setMaximumHeight(160)
+        self.cal_table.setMaximumHeight(180)
         cl.addWidget(self.cal_table)
 
         row_btn = QHBoxLayout()
@@ -1356,7 +1407,9 @@ class Xanes2DGui(QMainWindow):
             ("energy_rb_pv",        "Energy readback"),
             ("energy_units",        "Energy units (keV/eV)"),
             ("energy_tol",          "Energy readback tolerance"),
-            ("zp_motor_pv",         "ZP motor"),
+            ("zp_motor_pv",         "ZP motor (along beam)"),
+            ("zp_x_pv",             "ZP X motor"),
+            ("zp_z_pv",             "ZP Z motor"),
             ("topx_pv",             "Sample topx motor"),
             ("topz_pv",             "Sample topz motor"),
             ("rot_pv",              "Sample rotation motor"),
@@ -1452,6 +1505,9 @@ class Xanes2DGui(QMainWindow):
             "zp_drn_nm":      float(drn_eff),
             "zp_eps_mm":      float(eps_mm),
             "zp_cal_points":  cal_points,
+            "zp_cal_interp_zp":  self.cal_interp_zp.isChecked(),
+            "zp_cal_interp_zpx": self.cal_interp_zpx.isChecked(),
+            "zp_cal_interp_zpz": self.cal_interp_zpz.isChecked(),
             "mono_offset_eV": float(self.mono_offset.text()),
             "camera_distance_mm": float(self.cam_dist.text()),
             "motor_settle_s": float(self.motor_settle.text()),
@@ -1588,6 +1644,9 @@ class Xanes2DGui(QMainWindow):
                 "qgmax_pv": self.qgmax_pv.text(),
                 "qgmax_timeout": self.qgmax_timeout.text(),
                 "cal_use": self.cal_use_chk.isChecked(),
+                "cal_interp_zp":  self.cal_interp_zp.isChecked(),
+                "cal_interp_zpx": self.cal_interp_zpx.isChecked(),
+                "cal_interp_zpz": self.cal_interp_zpz.isChecked(),
                 "cal_points": self._cal_table_points(),
             },
         }
@@ -1638,6 +1697,9 @@ class Xanes2DGui(QMainWindow):
         self.qgmax_pv.setText(sc.get("qgmax_pv", self.qgmax_pv.text()))
         self.qgmax_timeout.setText(sc.get("qgmax_timeout", self.qgmax_timeout.text()))
         self.cal_use_chk.setChecked(bool(sc.get("cal_use", False)))
+        self.cal_interp_zp.setChecked(bool(sc.get("cal_interp_zp", True)))
+        self.cal_interp_zpx.setChecked(bool(sc.get("cal_interp_zpx", False)))
+        self.cal_interp_zpz.setChecked(bool(sc.get("cal_interp_zpz", False)))
         self._cal_table_set_points(sc.get("cal_points", []) or [])
         self.log(f"Settings loaded from {self.settings_file}")
 
@@ -1746,9 +1808,13 @@ class Xanes2DGui(QMainWindow):
             else:
                 cal_points = (self._zp_cached_nominal.get("cal_points")
                               if hasattr(self, "_zp_cached_nominal") else None)
+                if isinstance(cal_points, dict):
+                    cal_points = cal_points.get("points")
         else:
             cal_points = (self._zp_cached_nominal.get("cal_points")
                           if hasattr(self, "_zp_cached_nominal") else None)
+            if isinstance(cal_points, dict):
+                cal_points = cal_points.get("points")
         return diameter, drn_nominal, drn_eff, eps_mm, cal_points
 
     def _update_zp_info_label(self):
@@ -1768,8 +1834,10 @@ class Xanes2DGui(QMainWindow):
 
     # ── local ZP calibration table ─────────────────────────────────────
     def _cal_table_points(self):
-        """Return the table contents as a [[E_eV, motor_mm], …] list,
-        skipping any rows that don't parse as numbers."""
+        """Return the table as a list of [E_eV, ZP, ZP_X, ZP_Z] rows. ZP_X
+        and/or ZP_Z may be None for a row (e.g. if the PVs weren't configured
+        when the row was saved) — callers interpolate only the columns that
+        have values at every row."""
         pts = []
         for row in range(self.cal_table.rowCount()):
             e_item = self.cal_table.item(row, 0)
@@ -1777,24 +1845,55 @@ class Xanes2DGui(QMainWindow):
             if e_item is None or z_item is None:
                 continue
             try:
-                pts.append([float(e_item.text()), float(z_item.text())])
+                e_val = float(e_item.text())
+                zp_val = float(z_item.text())
             except ValueError:
                 continue
+            def _opt(col):
+                it = self.cal_table.item(row, col)
+                if it is None:
+                    return None
+                try:
+                    return float(it.text())
+                except ValueError:
+                    return None
+            pts.append([e_val, zp_val, _opt(2), _opt(3)])
         return pts
 
     def _cal_table_set_points(self, points):
         self.cal_table.setRowCount(0)
-        for E, m in points:
-            self._cal_append_row(float(E), float(m))
+        for p in points:
+            # Backwards-compatible with 2-column saved tables.
+            E = float(p[0])
+            zp = float(p[1])
+            zpx = p[2] if len(p) > 2 and p[2] is not None else None
+            zpz = p[3] if len(p) > 3 and p[3] is not None else None
+            self._cal_append_row(E, zp, zpx, zpz)
 
-    def _cal_append_row(self, energy_eV, zp_mm):
+    def _cal_append_row(self, energy_eV, zp_mm, zpx_mm=None, zpz_mm=None):
         row = self.cal_table.rowCount()
         self.cal_table.insertRow(row)
         self.cal_table.setItem(row, 0, QTableWidgetItem(f"{energy_eV:.3f}"))
         self.cal_table.setItem(row, 1, QTableWidgetItem(f"{zp_mm:.6f}"))
+        if zpx_mm is not None:
+            self.cal_table.setItem(row, 2, QTableWidgetItem(f"{zpx_mm:.6f}"))
+        if zpz_mm is not None:
+            self.cal_table.setItem(row, 3, QTableWidgetItem(f"{zpz_mm:.6f}"))
+
+    def _read_motor_rbv(self, pv):
+        """Read motor position: prefer `.RBV`, fall back to the plain PV."""
+        if not pv:
+            return None
+        try:
+            v = epics.caget(f"{pv}.RBV", timeout=2.0)
+            if v is None:
+                v = epics.caget(pv, timeout=2.0)
+            return float(v) if v is not None else None
+        except Exception:
+            return None
 
     def _on_cal_save(self):
-        """Read the current energy RBV and ZP motor RBV, append a row."""
+        """Read the current energy + ZP + ZP X + ZP Z RBVs, append a row."""
         pvs = {k: self.pv_edits[k].text().strip() for k in self.pv_edits}
         rb_pv = pvs.get("energy_rb_pv")
         zp_pv = pvs.get("zp_motor_pv")
@@ -1807,17 +1906,22 @@ class Xanes2DGui(QMainWindow):
             units = pvs.get("energy_units", "keV")
             if units == "keV":
                 e_val *= 1000.0
-            # Motor RBV: prefer `.RBV`, fall back to the plain PV
-            zp_val = epics.caget(f"{zp_pv}.RBV", timeout=2.0)
+            zp_val = self._read_motor_rbv(zp_pv)
             if zp_val is None:
-                zp_val = epics.caget(zp_pv, timeout=2.0)
-            zp_val = float(zp_val)
+                raise RuntimeError("ZP motor readback failed")
         except Exception as ex:
             QMessageBox.warning(self, "Read failed",
                                 f"Could not read PVs: {ex}")
             return
-        self._cal_append_row(e_val, zp_val)
-        self.log(f"Cal table: saved E={e_val:.2f} eV  ZP={zp_val:.4f} mm")
+        zpx_val = self._read_motor_rbv(pvs.get("zp_x_pv"))
+        zpz_val = self._read_motor_rbv(pvs.get("zp_z_pv"))
+        self._cal_append_row(e_val, zp_val, zpx_val, zpz_val)
+        parts = [f"E={e_val:.2f} eV", f"ZP={zp_val:.4f}"]
+        if zpx_val is not None:
+            parts.append(f"X={zpx_val:.4f}")
+        if zpz_val is not None:
+            parts.append(f"Z={zpz_val:.4f}")
+        self.log("Cal table: saved " + "  ".join(parts) + " mm")
 
     def _on_cal_remove(self):
         rows = sorted({i.row() for i in self.cal_table.selectedIndexes()},
