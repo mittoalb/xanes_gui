@@ -162,7 +162,7 @@ DEFAULTS = {
     # Output
     "save_dir":        os.path.expanduser("~/scans"),
     "master_h5_name":  "xanes2d_scan.h5",
-    "hdf5_compression":"gzip",
+    "hdf5_compression": "lzf",   # lzf: ~3-5× faster than gzip-3, slightly larger
     "hdf5_gzip_level": 3,
 }
 
@@ -486,12 +486,12 @@ class ScanWorker(QThread):
         return pv
 
     def _put(self, pv, val, wait=True, timeout=15.0):
+        """Write via plain caput. Using cached PVs here can race with the
+        auto_monitor subscription and let ca_put_callback (=motor DMOV) fire
+        before motion actually completes — caput avoids that."""
         if not pv:
             return
-        p = self._pv(pv)
-        if p is None:
-            return
-        p.put(val, wait=wait, timeout=timeout)
+        epics.caput(pv, val, wait=wait, timeout=timeout)
 
     def _get_float(self, pv, default=None):
         if not pv:
@@ -683,10 +683,14 @@ class ScanWorker(QThread):
                          self.params.get("motor_settle_s", 0.5))
         return s
 
-    def _acquire_one(self):
+    def _configure_camera_once(self):
+        """Set NumImages/ImageMode/AcquireTime a single time at scan start
+        instead of on every frame."""
         self._put(self.pvs["cam_num_images_pv"], 1)
         self._put(self.pvs["cam_image_mode_pv"], 0)  # Single
         self._put(self.pvs["cam_acquire_time_pv"], float(self.scan["exposure_s"]))
+
+    def _acquire_one(self):
         self._put(self.pvs["cam_acquire_pv"], 1, wait=False)
 
         rbv = self.pvs.get("cam_acquire_rbv_pv")
@@ -715,6 +719,7 @@ class ScanWorker(QThread):
             self.log.emit(f"Scanning {total} energies "
                           f"({energies_eV[0]:.2f} → {energies_eV[-1]:.2f} eV)")
 
+            self._configure_camera_once()
             instrument_snapshot_written = False
 
             for i, e_eV in enumerate(energies_eV, start=1):
