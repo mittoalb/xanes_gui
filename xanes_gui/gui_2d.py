@@ -750,6 +750,36 @@ class ScanWorker(QThread):
                          self.params.get("motor_settle_s", 0.5))
         return s
 
+    def _run_qgmax(self):
+        """Trigger QGMax (running inside pystream) and block until it finishes.
+        Uses QGMax's *own* configured motors/steps/thresholds — we just tell
+        it when to run via its status PV."""
+        pv_name = self.params.get("qgmax_pv", "").strip()
+        if not pv_name:
+            return
+        timeout = float(self.params.get("qgmax_timeout_s", 300.0))
+        try:
+            epics.caput(pv_name, "START", wait=False)
+        except Exception as ex:
+            self.log.emit(f"QGMax trigger failed: {ex}")
+            return
+        self.log.emit("    QGMax: waiting for completion…")
+        t0 = time.time()
+        # QGMax sets the PV to "Busy" while running and "Done" (or "Idle")
+        # when finished. Block until one of those terminal states — or timeout.
+        while time.time() - t0 < timeout:
+            if self._stop:
+                return
+            try:
+                v = epics.caget(pv_name, as_string=True, timeout=1.0)
+            except Exception:
+                v = None
+            if v is not None and v.upper() in ("DONE", "IDLE"):
+                self.log.emit(f"    QGMax: {v} ({time.time()-t0:.1f}s)")
+                return
+            time.sleep(0.5)
+        self.log.emit(f"    QGMax: timed out after {timeout:.0f}s")
+
     def _configure_camera_once(self):
         """Set NumImages/ImageMode/AcquireTime a single time at scan start
         instead of on every frame."""
@@ -923,6 +953,12 @@ class ScanWorker(QThread):
                     f"acq {t_acq_data:.2f}/{t_acq_flat:.2f} | "
                     f"save {t_save_data:.2f}/{t_save_flat:.2f}]"
                 )
+
+                # QGMax optimization every N points (skip on the last step —
+                # pointless to optimize after the scan is done).
+                every = int(self.params.get("qgmax_every_n", 0) or 0)
+                if every > 0 and i % every == 0 and i < total:
+                    self._run_qgmax()
 
             master.set_end_time()
             master.close()
@@ -1166,6 +1202,25 @@ class Xanes2DGui(QMainWindow):
         acq_box.setLayout(al)
         sl.addWidget(acq_box)
 
+        # QGMax trigger (use QGMax's own settings inside pystream)
+        qg_box = QGroupBox("QGMax optimization")
+        qgl = QHBoxLayout()
+        qgl.addWidget(QLabel("Run every"))
+        self.qgmax_every = QLineEdit("0")
+        self.qgmax_every.setFixedWidth(50)
+        qgl.addWidget(self.qgmax_every)
+        qgl.addWidget(QLabel("points (0 = off)"))
+        qgl.addStretch()
+        qgl.addWidget(QLabel("Status PV:"))
+        self.qgmax_pv = QLineEdit("32id:pystream:qgmax")
+        qgl.addWidget(self.qgmax_pv)
+        qgl.addWidget(QLabel("Timeout (s):"))
+        self.qgmax_timeout = QLineEdit("300")
+        self.qgmax_timeout.setFixedWidth(60)
+        qgl.addWidget(self.qgmax_timeout)
+        qg_box.setLayout(qgl)
+        sl.addWidget(qg_box)
+
         # Output
         out_box = QGroupBox("Output master HDF5")
         ol = QVBoxLayout()
@@ -1362,6 +1417,9 @@ class Xanes2DGui(QMainWindow):
             "post_energy_settle_s": float(self.post_energy_settle.text()),
             "master_path": os.path.join(self.save_dir.text().strip(),
                                         self.master_name.text().strip()),
+            "qgmax_every_n": int(self._read_opt_float(self.qgmax_every, 0) or 0),
+            "qgmax_pv": self.qgmax_pv.text().strip(),
+            "qgmax_timeout_s": float(self._read_opt_float(self.qgmax_timeout, 300.0) or 300.0),
         }
         return pvs, scan, params
 
@@ -1485,6 +1543,9 @@ class Xanes2DGui(QMainWindow):
                 "rot_ref": self.rot_ref.text(),
                 "save_dir": self.save_dir.text(),
                 "master_name": self.master_name.text(),
+                "qgmax_every": self.qgmax_every.text(),
+                "qgmax_pv": self.qgmax_pv.text(),
+                "qgmax_timeout": self.qgmax_timeout.text(),
             },
         }
         try:
@@ -1530,6 +1591,9 @@ class Xanes2DGui(QMainWindow):
         self.rot_ref.setText(sc.get("rot_ref", self.rot_ref.text()))
         self.save_dir.setText(sc.get("save_dir", self.save_dir.text()))
         self.master_name.setText(sc.get("master_name", self.master_name.text()))
+        self.qgmax_every.setText(sc.get("qgmax_every", self.qgmax_every.text()))
+        self.qgmax_pv.setText(sc.get("qgmax_pv", self.qgmax_pv.text()))
+        self.qgmax_timeout.setText(sc.get("qgmax_timeout", self.qgmax_timeout.text()))
         self.log(f"Settings loaded from {self.settings_file}")
 
     # ── optics_config (ZP params) ──────────────────────────────────────
