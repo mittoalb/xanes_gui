@@ -51,33 +51,6 @@ HC_EV_NM = 1239.84198  # eV·nm
 # directories so the two tools stay in sync.
 SHARED_1D_SETTINGS = os.path.expanduser("~/.xanes_gui_settings.json")
 
-# Optics Calculator config file — single source of truth for ZP parameters.
-OPTICS_CONFIG_PATHS = [
-    "/home/beams0/AMITTONE/Software/txm_calc/optics_config.json",
-    "/home/beams/AMITTONE/Software/txm_calc/optics_config.json",
-    "/home/beams/USERTXM/Software/txm_calc/optics_config.json",
-    "/home/beams0/USERTXM/Software/txm_calc/optics_config.json",
-    os.path.expanduser("~/Software/txm_calc/optics_config.json"),
-]
-
-
-def find_optics_config_path():
-    for p in OPTICS_CONFIG_PATHS:
-        if os.path.exists(p):
-            return p
-    return None
-
-
-def load_optics_config():
-    """Return the txm_calc optics_config.json contents, or None if unavailable."""
-    path = find_optics_config_path()
-    if not path:
-        return None
-    try:
-        with open(path) as fh:
-            return json.load(fh)
-    except Exception:
-        return None
 
 # K-edges (6–16 keV) — kept in sync with gui.py's K_EDGES_6_16_KEV.
 K_EDGES_6_16_KEV = [
@@ -148,13 +121,6 @@ DEFAULTS = {
     "topz_pv":     "32id:m3",
     "rot_pv":      "32id:m4",
 
-    # ZP + geometry defaults
-    "zp_diameter_um":     300.0,
-    "zp_drn_nm":           30.0,
-    "zp_eps_mm":            0.0,
-    "mono_offset_eV":      30.0,
-    "camera_distance_mm": 3500.0,
-
     # Timing
     "motor_settle_s":       0.5,
     "post_energy_settle_s": 2.0,
@@ -167,25 +133,28 @@ DEFAULTS = {
 }
 
 
-# ── physics helpers ───────────────────────────────────────────────────────
-
-def zp_focal_length_mm(energy_eV, diameter_um, drn_nm, mono_offset_eV=0.0):
-    e = energy_eV - mono_offset_eV
-    if e <= 0:
-        return None
-    wavelength_nm = HC_EV_NM / e
-    return (diameter_um * 1000.0 * drn_nm / wavelength_nm) * 1e-6
+BL_GUI_CAL_FILE = os.path.expanduser("~/.bl_gui/bl32id_zp_calibration.json")
 
 
-def zp_motor_position_mm(energy_eV, L_mm, diameter_um, drn_nm,
-                         mono_offset_eV=0.0, eps_mm=0.0):
-    f = zp_focal_length_mm(energy_eV, diameter_um, drn_nm, mono_offset_eV)
-    if f is None or L_mm <= 0:
+def load_bl_gui_zp_cal_points():
+    """Return the ZP focal-axis calibration from bl_gui's table, as a list of
+    [E_eV, Z_mm] pairs. Returns None if the file doesn't exist or has <2 usable
+    rows. bl_gui stores rows as [E_eV, X, Y, Z] — only Z is relevant here since
+    XANES2D drives one motor (the focal axis)."""
+    try:
+        with open(BL_GUI_CAL_FILE) as fh:
+            cfg = json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
-    disc = L_mm * L_mm - 4.0 * L_mm * f
-    if disc < 0:
-        return None
-    return (L_mm - disc ** 0.5) / 2.0 + eps_mm
+    pts = []
+    for row in cfg.get("points", []) or []:
+        try:
+            if len(row) < 4 or row[3] is None:
+                continue
+            pts.append([float(row[0]), float(row[3])])
+        except (TypeError, ValueError):
+            continue
+    return pts if len(pts) >= 2 else None
 
 
 def zp_motor_from_cal(energy_eV, cal_points):
@@ -661,12 +630,9 @@ class ScanWorker(QThread):
 
         optics_prefix = "32id:TXMOptics"
         zp = {
-            "zp_diameter_um": p.get("zp_diameter_um"),
-            "zp_drn_nm": p.get("zp_drn_nm"),
-            "zp_eps_mm": p.get("zp_eps_mm"),
-            "mono_offset_eV": p.get("mono_offset_eV"),
-            "camera_distance_mm": p.get("camera_distance_mm"),
             "zp_motor_pv": pvs.get("zp_motor_pv"),
+            "zp_cal_source": p.get("zp_cal_source"),
+            "zp_cal_n_points": len(p.get("zp_cal_points") or []),
             "image_pixel_size_nm": self._get_float(f"{optics_prefix}:ImagePixelSize"),
             "crop_left": self._get_float(f"{optics_prefix}:CropLeft"),
             "crop_right": self._get_float(f"{optics_prefix}:CropRight"),
@@ -796,18 +762,13 @@ class ScanWorker(QThread):
         self.log.emit(f"    mono RBV = {final:g} {units}")
 
     def _set_zp_for_energy(self, energy_eV):
-        p = self.params
-        cal = p.get("zp_cal_points")
+        cal = self.params.get("zp_cal_points")
         s = zp_motor_from_cal(energy_eV, cal) if cal else None
         if s is None:
-            L = p["camera_distance_mm"] + zp_focal_length_mm(
-                energy_eV, p["zp_diameter_um"], p["zp_drn_nm"],
-                p["mono_offset_eV"])
-            s = zp_motor_position_mm(
-                energy_eV, L, p["zp_diameter_um"], p["zp_drn_nm"],
-                p["mono_offset_eV"], p["zp_eps_mm"])
-        if s is None:
-            raise ValueError(f"No ZP solution at {energy_eV:.2f} eV")
+            raise ValueError(
+                f"No ZP calibration available at {energy_eV:.2f} eV. "
+                f"Populate the table in bl_gui (ZP Energy Calibration) first."
+            )
         self._move_motor(self.pvs["zp_motor_pv"], s,
                          self.params.get("motor_settle_s", 0.5))
         return s
@@ -912,6 +873,13 @@ class ScanWorker(QThread):
             self.log.emit(f"Master file: {master_path}")
             self.log.emit(f"Scanning {total} energies "
                           f"({energies_eV[0]:.2f} → {energies_eV[-1]:.2f} eV)")
+            cal = self.params.get("zp_cal_points")
+            if cal and len(cal) >= 2:
+                self.log.emit(f"ZP calibration: {len(cal)} points from bl_gui")
+            else:
+                raise RuntimeError(
+                    "No ZP calibration from bl_gui. Open bl_gui → ZP Energy "
+                    "Calibration and add ≥2 points before running a scan.")
             qg_every = int(self.params.get("qgmax_every_n", 0) or 0)
             if qg_every > 0:
                 self.log.emit(f"QGMax: will trigger every {qg_every} point(s); "
@@ -1099,7 +1067,7 @@ class Xanes2DGui(QMainWindow):
         self._load_settings()
 
         # Pull ZP params from the TXM Optics Calculator's config file.
-        self._reload_optics_config()
+        self._refresh_bl_gui_cal_status()
 
         # Pick up shared calibration curve directory from the 1-D GUI.
         self._refresh_shared_curve_settings()
@@ -1147,12 +1115,6 @@ class Xanes2DGui(QMainWindow):
         self.e_step = QLineEdit("10")
         row.addWidget(self.e_step)
         elay.addLayout(row)
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Mono offset (eV):"))
-        self.mono_offset = QLineEdit(str(DEFAULTS["mono_offset_eV"]))
-        row2.addWidget(self.mono_offset)
-        row2.addStretch()
-        elay.addLayout(row2)
         self.energy_info = QLabel("")
         self.energy_info.setStyleSheet("color: cyan;")
         elay.addWidget(self.energy_info)
@@ -1199,65 +1161,25 @@ class Xanes2DGui(QMainWindow):
         edge_box.setLayout(edl)
         sl.addWidget(edge_box)
 
-        # Zone plate — sourced from the TXM Optics Calculator's optics_config.json
-        zp_box = QGroupBox("Zone plate  (from TXM Optics Calculator)")
+        # ZP calibration — consumed from bl_gui's table (no UI here).
+        zp_box = QGroupBox("Zone-plate calibration")
         zl = QVBoxLayout()
-        top = QHBoxLayout()
-        top.addWidget(QLabel("ZP:"))
-        self.zp_combo = QComboBox()
-        self.zp_combo.currentIndexChanged.connect(self._on_zp_selection_changed)
-        top.addWidget(self.zp_combo)
-        self.btn_reload_optics = QPushButton("Reload optics_config")
-        self.btn_reload_optics.clicked.connect(self._reload_optics_config)
-        top.addWidget(self.btn_reload_optics)
-        zl.addLayout(top)
-
-        self.zp_info_label = QLabel("—")
-        self.zp_info_label.setStyleSheet("color: #9ecae1; font-size: 9pt;")
-        self.zp_info_label.setWordWrap(True)
-        zl.addWidget(self.zp_info_label)
-
-        # Editable override fields for Δrₙ_eff and ε — useful when
-        # optics_config.json has no calibrated values yet.
-        rov = QHBoxLayout()
-        rov.addWidget(QLabel("Δrₙ eff (nm):"))
-        self.zp_drn_override = QLineEdit()
-        self.zp_drn_override.setMaximumWidth(80)
-        self.zp_drn_override.setToolTip(
-            "Override effective Δrₙ. Pre-filled from optics_config.")
-        self.zp_drn_override.editingFinished.connect(self._update_zp_info_label)
-        rov.addWidget(self.zp_drn_override)
-        rov.addWidget(QLabel("ε (mm):"))
-        self.zp_eps_override = QLineEdit()
-        self.zp_eps_override.setMaximumWidth(80)
-        self.zp_eps_override.setToolTip(
-            "Override residual motor offset ε. Pre-filled from optics_config.")
-        self.zp_eps_override.editingFinished.connect(self._update_zp_info_label)
-        rov.addWidget(self.zp_eps_override)
-        rov.addStretch()
-        zl.addLayout(rov)
-
-        r2 = QHBoxLayout()
-        r2.addWidget(QLabel("Camera distance (mm):"))
-        self.cam_dist = QLineEdit(str(DEFAULTS["camera_distance_mm"]))
-        self.cam_dist.setToolTip("Pre-filled from optics_config user_parameters")
-        r2.addWidget(self.cam_dist)
-        r2.addStretch()
-        zl.addLayout(r2)
-
-        self.optics_src_label = QLabel("optics_config: not loaded")
-        self.optics_src_label.setStyleSheet("color: #888; font-size: 8pt;")
-        zl.addWidget(self.optics_src_label)
+        msg = QLabel(
+            f"ZP motor position is interpolated from bl_gui's ZP Energy "
+            f"Calibration table.\nFile: {BL_GUI_CAL_FILE}"
+        )
+        msg.setStyleSheet("color: #9ecae1; font-size: 9pt;")
+        msg.setWordWrap(True)
+        zl.addWidget(msg)
+        self.zp_cal_status = QLabel("")
+        self.zp_cal_status.setStyleSheet("color: #888; font-size: 9pt;")
+        self.zp_cal_status.setWordWrap(True)
+        zl.addWidget(self.zp_cal_status)
+        btn_refresh = QPushButton("Refresh bl_gui calibration")
+        btn_refresh.clicked.connect(self._refresh_bl_gui_cal_status)
+        zl.addWidget(btn_refresh)
         zp_box.setLayout(zl)
         sl.addWidget(zp_box)
-
-        # Internal storage for selected ZP params
-        self._optics_config = None
-        self._zp_params = {
-            "zp_diameter_um": DEFAULTS["zp_diameter_um"],
-            "zp_drn_nm": DEFAULTS["zp_drn_nm"],
-            "zp_eps_mm": DEFAULTS["zp_eps_mm"],
-        }
 
         # Sample positions
         pos_box = QGroupBox("Sample positions (mm, deg)")
@@ -1508,15 +1430,9 @@ class Xanes2DGui(QMainWindow):
             "topz_ref_mm": float(self.topz_ref.text()),
             "rot_ref_deg": self._read_opt_float(self.rot_ref, None),
         }
-        diameter, _drn_nominal, drn_eff, eps_mm, cal_points = self._current_zp_values()
         params = {
-            "zp_name": self.zp_combo.currentText(),
-            "zp_diameter_um": float(diameter),
-            "zp_drn_nm":      float(drn_eff),
-            "zp_eps_mm":      float(eps_mm),
-            "zp_cal_points":  cal_points,
-            "mono_offset_eV": float(self.mono_offset.text()),
-            "camera_distance_mm": float(self.cam_dist.text()),
+            "zp_cal_points":  load_bl_gui_zp_cal_points(),
+            "zp_cal_source":  BL_GUI_CAL_FILE,
             "motor_settle_s": float(self.motor_settle.text()),
             "post_energy_settle_s": float(self.post_energy_settle.text()),
             "master_path": os.path.join(self.save_dir.text().strip(),
@@ -1549,27 +1465,17 @@ class Xanes2DGui(QMainWindow):
         self.log(f"REF  pos: topx={scan['topx_ref_mm']}, topz={scan['topz_ref_mm']}, "
                  f"rot={scan['rot_ref_deg']}")
         cal = params.get("zp_cal_points")
-        if cal:
-            self.log(f"ZP position source: measured calibration ({len(cal)} points)")
-        else:
-            self.log("ZP position source: analytical (drn_eff + eps_mm)")
+        if not cal:
+            self.log("No ZP calibration from bl_gui — scan would abort. "
+                     "Open bl_gui's ZP Energy Calibration and add ≥2 points.")
+            return
+        self.log(f"ZP calibration: {len(cal)} points from bl_gui")
         for i, e in enumerate(energies, 1):
-            if cal:
-                s = zp_motor_from_cal(e, cal)
-                if s is None:
-                    self.log(f"  [{i}] E={e:.2f} eV  (invalid)")
-                    continue
-                self.log(f"  [{i}] E={e:.2f} eV  ZP={s:.4f} mm  [cal]")
-                continue
-            f = zp_focal_length_mm(e, params["zp_diameter_um"], params["zp_drn_nm"],
-                                   params["mono_offset_eV"])
-            if f is None:
+            s = zp_motor_from_cal(e, cal)
+            if s is None:
                 self.log(f"  [{i}] E={e:.2f} eV  (invalid)")
-                continue
-            L = params["camera_distance_mm"] + f
-            s = zp_motor_position_mm(e, L, params["zp_diameter_um"], params["zp_drn_nm"],
-                                     params["mono_offset_eV"], params["zp_eps_mm"])
-            self.log(f"  [{i}] E={e:.2f} eV  f={f:.3f} mm  L={L:.3f} mm  ZP={s:.4f} mm")
+            else:
+                self.log(f"  [{i}] E={e:.2f} eV  ZP={s:.4f} mm")
 
     # ── start / stop ───────────────────────────────────────────────────
     def _on_start(self):
@@ -1625,13 +1531,6 @@ class Xanes2DGui(QMainWindow):
     def _save_settings(self, popup=False):
         data = {
             "pvs": {k: self.pv_edits[k].text() for k in self.pv_edits},
-            "zp": {
-                "zp_name": self.zp_combo.currentText(),
-                "zp_drn_override": self.zp_drn_override.text(),
-                "zp_eps_override": self.zp_eps_override.text(),
-                "mono_offset_eV": self.mono_offset.text(),
-                "camera_distance_mm": self.cam_dist.text(),
-            },
             "scan": {
                 "e_start": self.e_start.text(),
                 "e_end": self.e_end.text(),
@@ -1674,12 +1573,6 @@ class Xanes2DGui(QMainWindow):
 
         for k, edit in self.pv_edits.items():
             edit.setText(str(d.get("pvs", {}).get(k, DEFAULTS[k])))
-        zp = d.get("zp", {})
-        self._saved_zp_name = zp.get("zp_name")
-        self._saved_zp_drn_override = zp.get("zp_drn_override")
-        self._saved_zp_eps_override = zp.get("zp_eps_override")
-        self.mono_offset.setText(zp.get("mono_offset_eV", self.mono_offset.text()))
-        self.cam_dist.setText(zp.get("camera_distance_mm", self.cam_dist.text()))
         sc = d.get("scan", {})
         self.e_start.setText(sc.get("e_start", self.e_start.text()))
         self.e_end.setText(sc.get("e_end", self.e_end.text()))
@@ -1700,123 +1593,17 @@ class Xanes2DGui(QMainWindow):
         self.qgmax_timeout.setText(sc.get("qgmax_timeout", self.qgmax_timeout.text()))
         self.log(f"Settings loaded from {self.settings_file}")
 
-    # ── optics_config (ZP params) ──────────────────────────────────────
-    def _reload_optics_config(self):
-        cfg = load_optics_config()
-        self._optics_config = cfg
-        path = find_optics_config_path()
-        if cfg is None:
-            self.optics_src_label.setText("optics_config: NOT FOUND "
-                                          f"(looked in {len(OPTICS_CONFIG_PATHS)} locations)")
-            self.log("optics_config.json not found — using default ZP params.")
-            self.zp_combo.clear()
-            return
-        self.optics_src_label.setText(f"optics_config: {path}")
-
-        zps = cfg.get("zone_plates", {})
-        # Preserve current selection if possible
-        current = self.zp_combo.currentText()
-        self.zp_combo.blockSignals(True)
-        self.zp_combo.clear()
-        for name in zps.keys():
-            self.zp_combo.addItem(name)
-        saved = getattr(self, "_saved_zp_name", None)
-        if saved and saved in zps:
-            self.zp_combo.setCurrentText(saved)
-        elif current and current in zps:
-            self.zp_combo.setCurrentText(current)
-        elif "30nm ZP" in zps:
-            self.zp_combo.setCurrentText("30nm ZP")
-        self.zp_combo.blockSignals(False)
-
-        # Populate camera distance + mono offset from user_parameters
-        up = cfg.get("user_parameters", {})
-        cam = up.get("camera_distance")
-        if cam is not None:
-            self.cam_dist.setText(str(cam))
-        shift = up.get("detector_energy_shift")
-        if shift is not None:
-            self.mono_offset.setText(str(shift))
-
-        self._on_zp_selection_changed()
-        self.log(f"Loaded optics_config from {path}  "
-                 f"({len(zps)} zone plates)")
-
-    def _on_zp_selection_changed(self):
-        if self._optics_config is None:
-            return
-        name = self.zp_combo.currentText()
-        zp = self._optics_config.get("zone_plates", {}).get(name)
-        if not zp:
-            return
-        diameter = float(zp.get("diameter", DEFAULTS["zp_diameter_um"]))
-        drn_nominal = float(zp.get("drn", DEFAULTS["zp_drn_nm"]))
-        drn_eff = float(zp.get("drn_eff", drn_nominal))
-        eps_mm = float(zp.get("eps_mm", 0.0))
-        cal = zp.get("cal_points")
-        cal_points = cal.get("points") if isinstance(cal, dict) else None
-        self._zp_cached_nominal = {
-            "zp_diameter_um": diameter,
-            "drn_nominal": drn_nominal,
-            "drn_eff_file": drn_eff,
-            "eps_mm_file": eps_mm,
-            "cal_points": cal_points,
-        }
-        # Respect a saved-settings override if present; otherwise take from file.
-        saved_drn = getattr(self, "_saved_zp_drn_override", None)
-        saved_eps = getattr(self, "_saved_zp_eps_override", None)
-        self.zp_drn_override.blockSignals(True)
-        self.zp_eps_override.blockSignals(True)
-        self.zp_drn_override.setText(saved_drn if saved_drn not in (None, "")
-                                     else f"{drn_eff:g}")
-        self.zp_eps_override.setText(saved_eps if saved_eps not in (None, "")
-                                     else f"{eps_mm:g}")
-        self.zp_drn_override.blockSignals(False)
-        self.zp_eps_override.blockSignals(False)
-        # Consume the saved-override hint once applied
-        self._saved_zp_drn_override = None
-        self._saved_zp_eps_override = None
-        self._update_zp_info_label()
-
-    def _current_zp_values(self):
-        """Resolve the effective ZP parameters: dropdown + inline overrides."""
-        diameter = (self._zp_cached_nominal["zp_diameter_um"]
-                    if hasattr(self, "_zp_cached_nominal")
-                    else DEFAULTS["zp_diameter_um"])
-        try:
-            drn_eff = float(self.zp_drn_override.text())
-        except (ValueError, AttributeError):
-            drn_eff = (self._zp_cached_nominal["drn_eff_file"]
-                       if hasattr(self, "_zp_cached_nominal")
-                       else DEFAULTS["zp_drn_nm"])
-        try:
-            eps_mm = float(self.zp_eps_override.text())
-        except (ValueError, AttributeError):
-            eps_mm = (self._zp_cached_nominal["eps_mm_file"]
-                      if hasattr(self, "_zp_cached_nominal")
-                      else DEFAULTS["zp_eps_mm"])
-        drn_nominal = (self._zp_cached_nominal["drn_nominal"]
-                       if hasattr(self, "_zp_cached_nominal") else drn_eff)
-        cal_points = (self._zp_cached_nominal.get("cal_points")
-                      if hasattr(self, "_zp_cached_nominal") else None)
-        if isinstance(cal_points, dict):
-            cal_points = cal_points.get("points")
-        return diameter, drn_nominal, drn_eff, eps_mm, cal_points
-
-    def _update_zp_info_label(self):
-        diameter, drn_nominal, drn_eff, eps_mm, _cal = self._current_zp_values()
-        src_drn = "file"
-        src_eps = "file"
-        if hasattr(self, "_zp_cached_nominal"):
-            if abs(drn_eff - self._zp_cached_nominal["drn_eff_file"]) > 1e-9:
-                src_drn = "override"
-            if abs(eps_mm - self._zp_cached_nominal["eps_mm_file"]) > 1e-9:
-                src_eps = "override"
-        self.zp_info_label.setText(
-            f"D = {diameter:g} μm   Δrₙ nominal = {drn_nominal:g} nm   "
-            f"Δrₙ eff = {drn_eff:g} nm [{src_drn}]   "
-            f"ε = {eps_mm:+g} mm [{src_eps}]"
-        )
+    def _refresh_bl_gui_cal_status(self):
+        cal = load_bl_gui_zp_cal_points()
+        if cal is None:
+            self.zp_cal_status.setText(
+                "no calibration found (create it in bl_gui → ZP Energy Calibration)"
+            )
+        else:
+            es = [p[0] for p in cal]
+            self.zp_cal_status.setText(
+                f"{len(cal)} points, {min(es):.1f} → {max(es):.1f} eV"
+            )
 
     # ── shared calibration curve ───────────────────────────────────────
     def _refresh_shared_curve_settings(self):
