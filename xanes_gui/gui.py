@@ -344,14 +344,21 @@ class CalibrationWorker(QThread):
             self.error.emit(f"ERROR (calibrate): {ex}")
 
 class StartScriptWorker(QThread):
-    """Thread to run the XANES script locally or via SSH in embedded terminal."""
-    log = pyqtSignal(str)
-    finished = pyqtSignal(int)  # exit code
-    error = pyqtSignal(str)
+    """Thread to run the XANES script locally or via SSH in embedded terminal.
 
-    def __init__(self, remote_config=None):
+    Supports repeating the same scan N times with a start-to-start interval —
+    each iteration spawns a fresh `xanes_energy.py` subprocess; tomoscan
+    handles per-iteration file naming on its end."""
+    log = pyqtSignal(str)
+    finished = pyqtSignal(int)  # exit code of the last iteration
+    error = pyqtSignal(str)
+    repeat_progress = pyqtSignal(int, int)  # (iter_idx 1-based, repeat_count)
+
+    def __init__(self, remote_config=None, repeat_count=1, repeat_interval_s=0.0):
         super().__init__()
         self.remote_config = remote_config or {}
+        self.repeat_count = max(1, int(repeat_count or 1))
+        self.repeat_interval_s = max(0.0, float(repeat_interval_s or 0.0))
         self._stop_requested = False
         self._proc = None
         self._proc_pgid = None
@@ -364,79 +371,114 @@ class StartScriptWorker(QThread):
             except Exception as ex:
                 self.log.emit(f"Terminate failed: {ex}")
 
+    def _build_cmd(self):
+        """Decide local vs SSH and return the shell command list, logging the
+        decision once (called per iteration so each iteration's log block is
+        self-contained)."""
+        remote_user = self.remote_config.get("remote_user", "usertxm")
+        remote_host = self.remote_config.get("remote_host", "gauss")
+        conda_env = self.remote_config.get("conda_env", "tomoscan")
+        work_dir = self.remote_config.get("work_dir", "/home/beams/USERTXM/epics/synApps/support/tomoscan/iocBoot/iocTomoScan_32ID/")
+        conda_path = self.remote_config.get("conda_path", "/home/beams/USERTXM/conda/anaconda")
+        script_name = self.remote_config.get("script_name", "/home/beams/USERTXM/Software/xanes_gui/xanes_energy.py")
+
+        import socket
+        current_hostname = socket.gethostname()
+        current_hostname_short = current_hostname.split('.')[0]
+
+        is_local = (
+            current_hostname == remote_host or
+            current_hostname_short == remote_host or
+            remote_host in ["localhost", "127.0.0.1", ""] or
+            os.path.exists(script_name)
+        )
+
+        if is_local:
+            self.log.emit(f"Running locally on {current_hostname}")
+            self.log.emit(f"Executing: {script_name}")
+            return [
+                "bash", "-l", "-c",
+                f"cd {work_dir} && "
+                f"source {conda_path}/etc/profile.d/conda.sh && "
+                f"conda activate {conda_env} && "
+                f"python {script_name}"
+            ]
+        self.log.emit(f"Connecting to {remote_user}@{remote_host}...")
+        self.log.emit(f"Running: {script_name}")
+        return [
+            "ssh", "-t", f"{remote_user}@{remote_host}",
+            f"bash -l -c \"cd {work_dir} && hostname && "
+            f"source {conda_path}/etc/profile.d/conda.sh && "
+            f"conda activate {conda_env} && "
+            f"python {script_name}\""
+        ]
+
+    def _run_once(self):
+        """Spawn one xanes_energy.py invocation, stream stdout, return its
+        exit code. Returns -1 on stop-before-start."""
+        if self._stop_requested:
+            return -1
+        cmd = self._build_cmd()
+        self._proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            preexec_fn=os.setsid,
+        )
+        self._proc_pgid = os.getpgid(self._proc.pid)
+        for line in self._proc.stdout:
+            if self._stop_requested:
+                break
+            self.log.emit(line.rstrip())
+        rc = self._proc.wait()
+        if rc == 0:
+            self.log.emit("Script completed successfully")
+        else:
+            self.log.emit(f"Script exited with code: {rc}")
+        return rc
+
+    def _wait_until_next_iter(self, deadline):
+        """Sleep until `deadline` (wall-clock) in 0.5 s chunks so Stop stays
+        responsive. Logs a warning if we are already past `deadline` (i.e.
+        the previous scan overran the requested interval)."""
+        now = time.time()
+        if now >= deadline:
+            overrun = now - deadline
+            if overrun > 0.5:
+                self.log.emit(
+                    f"WARNING: scan overran the repeat interval by "
+                    f"{overrun:.1f}s — starting next iteration immediately."
+                )
+            return
+        remaining = deadline - now
+        self.log.emit(f"Waiting {remaining:.1f}s until next iteration…")
+        while not self._stop_requested and time.time() < deadline:
+            time.sleep(min(0.5, max(0.0, deadline - time.time())))
+
     def run(self):
         try:
-            # Extract configuration from remote_config
-            remote_user = self.remote_config.get("remote_user", "usertxm")
-            remote_host = self.remote_config.get("remote_host", "gauss")
-            conda_env = self.remote_config.get("conda_env", "tomoscan")
-            work_dir = self.remote_config.get("work_dir", "/home/beams/USERTXM/epics/synApps/support/tomoscan/iocBoot/iocTomoScan_32ID/")
-            conda_path = self.remote_config.get("conda_path", "/home/beams/USERTXM/conda/anaconda")
-            script_name = self.remote_config.get("script_name", "/home/beams/USERTXM/Software/xanes_gui/xanes_energy.py")
-
-            # Check if we're already on the target machine or if script exists locally
-            import socket
-            current_hostname = socket.gethostname()
-            current_hostname_short = current_hostname.split('.')[0]  # Get short hostname
-
-            # Check if local: exact match, short name match, localhost, or script file exists locally
-            is_local = (
-                current_hostname == remote_host or
-                current_hostname_short == remote_host or
-                remote_host in ["localhost", "127.0.0.1", ""] or
-                os.path.exists(script_name)  # If script exists locally, run locally
-            )
-
-            if is_local:
-                # Run locally
-                self.log.emit(f"Running locally on {current_hostname}")
-                self.log.emit(f"Executing: {script_name}")
-
-                # Build local command with conda activation
-                cmd = [
-                    "bash", "-l", "-c",
-                    f"cd {work_dir} && "
-                    f"source {conda_path}/etc/profile.d/conda.sh && "
-                    f"conda activate {conda_env} && "
-                    f"python {script_name}"
-                ]
-            else:
-                # Run via SSH
-                self.log.emit(f"Connecting to {remote_user}@{remote_host}...")
-                self.log.emit(f"Running: {script_name}")
-
-                # Build SSH command
-                cmd = [
-                    "ssh", "-t", f"{remote_user}@{remote_host}",
-                    f"bash -l -c \"cd {work_dir} && hostname && "
-                    f"source {conda_path}/etc/profile.d/conda.sh && "
-                    f"conda activate {conda_env} && "
-                    f"python {script_name}\""
-                ]
-
-            # Run command
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,  # Line buffered
-                preexec_fn=os.setsid
-            )
-            self._proc_pgid = os.getpgid(self._proc.pid)
-
-            # Stream output line by line
-            for line in self._proc.stdout:
+            last_rc = 0
+            for iter_idx in range(1, self.repeat_count + 1):
                 if self._stop_requested:
                     break
-                self.log.emit(line.rstrip())
-
-            rc = self._proc.wait()
-            if rc == 0:
-                self.log.emit("Script completed successfully")
-            else:
-                self.log.emit(f"Script exited with code: {rc}")
-            self.finished.emit(rc)
+                self.repeat_progress.emit(iter_idx, self.repeat_count)
+                if self.repeat_count > 1:
+                    self.log.emit(
+                        f"=== Iteration {iter_idx}/{self.repeat_count} ==="
+                    )
+                iter_start = time.time()
+                last_rc = self._run_once()
+                if last_rc != 0 and not self._stop_requested:
+                    self.log.emit(
+                        f"WARNING: iteration {iter_idx} exited with code "
+                        f"{last_rc} — continuing to next iteration."
+                    )
+                if self._stop_requested or iter_idx == self.repeat_count:
+                    break
+                self._wait_until_next_iter(iter_start + self.repeat_interval_s)
+            self.finished.emit(last_rc)
 
         except Exception as ex:
             self.error.emit(f"ERROR: {str(ex)}")
@@ -715,6 +757,32 @@ class XANESGui(QMainWindow):
         self.custom_frame.hide()
         scan_layout.addWidget(self.custom_frame)
 
+        # Repeat scan — run the same full scan N times every X minutes
+        rep_box = QGroupBox("Repeat scan")
+        rep_outer = QVBoxLayout()
+        rep_row = QHBoxLayout()
+        rep_row.setContentsMargins(10, 5, 10, 5)
+        rep_row.addWidget(QLabel("Number of repeats:"))
+        self.repeats = QLineEdit("1")
+        self.repeats.setFixedWidth(60)
+        rep_row.addWidget(self.repeats)
+        rep_row.addWidget(QLabel("Interval (min):"))
+        self.repeat_interval_min = QLineEdit("0")
+        self.repeat_interval_min.setFixedWidth(60)
+        rep_row.addWidget(self.repeat_interval_min)
+        self.repeat_info = QLabel("single scan")
+        self.repeat_info.setStyleSheet("color: cyan;")
+        rep_row.addWidget(self.repeat_info)
+        rep_row.addStretch()
+        self.repeat_status = QLabel("")
+        self.repeat_status.setStyleSheet("color: #9ecae1;")
+        rep_row.addWidget(self.repeat_status)
+        rep_outer.addLayout(rep_row)
+        for w_edit in (self.repeats, self.repeat_interval_min):
+            w_edit.textChanged.connect(self.update_repeat_info)
+        rep_box.setLayout(rep_outer)
+        scan_layout.addWidget(rep_box)
+
         # Progress bar
         self.progress = QProgressBar()
         scan_layout.addWidget(self.progress)
@@ -930,6 +998,37 @@ class XANESGui(QMainWindow):
     def on_prefill_error(self, error):
         """Handle prefill error."""
         self.log(f"Prefill failed: {error}")
+
+    def repeat_params(self):
+        """Return (n_repeats, interval_minutes) with safe parsing."""
+        try:
+            n = max(1, int(float(self.repeats.text() or "1")))
+        except ValueError:
+            n = 1
+        try:
+            mins = max(0.0, float(self.repeat_interval_min.text() or "0"))
+        except ValueError:
+            mins = 0.0
+        return n, mins
+
+    def update_repeat_info(self):
+        """Refresh the cyan info label next to the repeat fields."""
+        n, mins = self.repeat_params()
+        if n <= 1:
+            self.repeat_info.setText("single scan")
+        else:
+            total_min = (n - 1) * mins
+            self.repeat_info.setText(
+                f"{n} repeats every {mins:g} min "
+                f"→ first→last start ≈ {total_min:g} min"
+            )
+
+    @pyqtSlot(int, int)
+    def on_repeat_progress(self, iter_idx, total_iters):
+        if total_iters > 1:
+            self.repeat_status.setText(f"Iteration {iter_idx} / {total_iters}")
+        else:
+            self.repeat_status.setText("")
 
     def update_manual_points(self):
         """Calculate and display number of points based on start, end, step."""
@@ -1547,13 +1646,24 @@ class XANESGui(QMainWindow):
             "script_name": self.script_name.text(),
         }
 
+        rep_n, rep_mins = self.repeat_params()
+        self.repeat_status.setText("")
         self.log("=" * 60)
-        self.log("Starting XANES scan via SSH...")
+        if rep_n > 1:
+            self.log(f"Starting XANES scan via SSH — {rep_n} iterations every "
+                     f"{rep_mins:g} min (start-to-start)…")
+        else:
+            self.log("Starting XANES scan via SSH...")
         self.log("=" * 60)
 
         # Create and start worker with remote configuration
-        self._start_worker = StartScriptWorker(remote_config)
+        self._start_worker = StartScriptWorker(
+            remote_config,
+            repeat_count=rep_n,
+            repeat_interval_s=rep_mins * 60.0,
+        )
         self._start_worker.log.connect(self.log)
+        self._start_worker.repeat_progress.connect(self.on_repeat_progress)
         self._start_worker.finished.connect(self.on_start_finished)
         self._start_worker.error.connect(self.on_start_error)
         self._start_worker.start()
@@ -1628,6 +1738,8 @@ class XANESGui(QMainWindow):
             "work_dir": self.work_dir.text(),
             "conda_path": self.conda_path.text(),
             "script_name": self.script_name.text(),
+            "repeats": self.repeats.text(),
+            "repeat_interval_min": self.repeat_interval_min.text(),
         }
         try:
             with open(self.settings_file, 'w') as f:
@@ -1666,6 +1778,10 @@ class XANESGui(QMainWindow):
             self.work_dir.setText(settings.get("work_dir", DEFAULTS["work_dir"]))
             self.conda_path.setText(settings.get("conda_path", DEFAULTS["conda_path"]))
             self.script_name.setText(settings.get("script_name", DEFAULTS["script_name"]))
+            self.repeats.setText(settings.get("repeats", self.repeats.text()))
+            self.repeat_interval_min.setText(
+                settings.get("repeat_interval_min", self.repeat_interval_min.text()))
+            self.update_repeat_info()
 
             self.log(f"Settings loaded from {self.settings_file}")
         except Exception as ex:

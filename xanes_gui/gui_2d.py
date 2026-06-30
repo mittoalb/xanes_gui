@@ -25,6 +25,7 @@ across the plane perpendicular to the beam) and for 2-D XANES imaging.
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -155,6 +156,28 @@ def load_bl_gui_zp_cal_points():
         except (TypeError, ValueError):
             continue
     return pts if len(pts) >= 2 else None
+
+
+def next_indexed_path(save_dir, base_name):
+    """Return `<save_dir>/<stem>_<NNN><ext>` with NNN = (highest existing
+    index in `save_dir` matching `<stem>_(\\d+)<ext>`) + 1, or 001 if none.
+
+    Mirrors AreaDetector / tomoscan auto-incrementing so repeated scans don't
+    clobber prior master files."""
+    stem, ext = os.path.splitext(base_name)
+    pat = re.compile(r"^" + re.escape(stem) + r"_(\d+)" + re.escape(ext) + r"$")
+    max_idx = 0
+    try:
+        for fn in os.listdir(save_dir):
+            m = pat.match(fn)
+            if m:
+                try:
+                    max_idx = max(max_idx, int(m.group(1)))
+                except ValueError:
+                    pass
+    except OSError:
+        pass
+    return os.path.join(save_dir, f"{stem}_{max_idx + 1:03d}{ext}")
 
 
 def zp_motor_from_cal(energy_eV, cal_points):
@@ -492,10 +515,11 @@ class MasterH5:
 # ── scan worker thread ────────────────────────────────────────────────────
 
 class ScanWorker(QThread):
-    progress = pyqtSignal(int, int)         # (step index 1-based, total)
+    progress = pyqtSignal(int, int)         # (global step index 1-based, total across all iterations)
+    repeat_progress = pyqtSignal(int, int)  # (iteration 1-based, repeat_count)
     log = pyqtSignal(str)
     error = pyqtSignal(str)
-    done = pyqtSignal(str)                  # master file path
+    done = pyqtSignal(str)                  # last master file path
 
     def __init__(self, pvs, scan, params):
         super().__init__()
@@ -777,8 +801,8 @@ class ScanWorker(QThread):
         """Trigger QGMax (running inside pystream) and block until it finishes.
 
         Two files, no overwriting each other's state:
-          ~/.pystream_qgmax_request.json   — written by XANES2D, read by QGMax
-          ~/.pystream_qgmax_response.json  — written by QGMax,   read by XANES2D
+          ~/.pystream/qgmax_request.json   — written by XANES2D, read by QGMax
+          ~/.pystream/qgmax_response.json  — written by QGMax,   read by XANES2D
 
         QGMax writes an early ack (started_ts = req_ts) when it picks up the
         request, then updates last_completed_ts when the cycle finishes. The
@@ -786,8 +810,9 @@ class ScanWorker(QThread):
         of the full timeout."""
         timeout = float(self.params.get("qgmax_timeout_s", 300.0))
         ack_timeout = 5.0  # QGMax polls every 500 ms; ack should be fast
-        req_path = os.path.expanduser("~/.pystream_qgmax_request.json")
-        resp_path = os.path.expanduser("~/.pystream_qgmax_response.json")
+        pystream_home = os.path.expanduser("~/.pystream")
+        req_path  = os.path.join(pystream_home, "qgmax_request.json")
+        resp_path = os.path.join(pystream_home, "qgmax_response.json")
         req_ts = time.time()
         try:
             with open(req_path, "w") as fh:
@@ -858,18 +883,70 @@ class ScanWorker(QThread):
             return pva_get_ndarray(det)
         return img
 
+    def _wait_until_next_iter(self, deadline):
+        """Sleep until `deadline` (wall-clock), in small chunks so Stop is
+        responsive. Logs a warning if we are already past `deadline` (i.e.
+        the previous scan overran the requested interval)."""
+        now = time.time()
+        if now >= deadline:
+            overrun = now - deadline
+            if overrun > 0.5:
+                self.log.emit(
+                    f"WARNING: scan overran the repeat interval by "
+                    f"{overrun:.1f}s — starting next iteration immediately."
+                )
+            return
+        remaining = deadline - now
+        self.log.emit(f"Waiting {remaining:.1f}s until next iteration…")
+        while not self._stop and time.time() < deadline:
+            time.sleep(min(0.5, max(0.0, deadline - time.time())))
+
     def run(self):
         try:
-            energies_eV = list(self.scan["energies_eV"])
-            total = len(energies_eV)
-            master_path = self.params["master_path"]
+            repeat_count = max(1, int(self.params.get("repeat_count", 1) or 1))
+            interval_s = float(self.params.get("repeat_interval_s", 0.0) or 0.0)
 
-            scan_meta = {**self.pvs, **self.scan, **self.params,
-                         "energies_eV": energies_eV,
-                         "hdf5_compression": DEFAULTS.get("hdf5_compression", "gzip"),
-                         "hdf5_gzip_level": DEFAULTS.get("hdf5_gzip_level", 3)}
-            master = MasterH5(master_path, scan_meta)
+            save_dir = os.path.dirname(self.params["master_path"])
+            base_name = os.path.basename(self.params["master_path"])
+            os.makedirs(save_dir, exist_ok=True)
 
+            last_path = ""
+            for iter_idx in range(1, repeat_count + 1):
+                if self._stop:
+                    self.log.emit("Stopped by user.")
+                    break
+                master_path = next_indexed_path(save_dir, base_name)
+                last_path = master_path
+                self.repeat_progress.emit(iter_idx, repeat_count)
+                self.log.emit(
+                    f"=== Iteration {iter_idx}/{repeat_count} → {master_path} ==="
+                )
+                iter_start = time.time()
+                self._run_one_scan(master_path, iter_idx, repeat_count)
+                if self._stop or iter_idx == repeat_count:
+                    break
+                self._wait_until_next_iter(iter_start + interval_s)
+
+            self.done.emit(last_path)
+
+        except Exception as ex:
+            self.error.emit(f"Scan error: {ex}")
+
+    def _run_one_scan(self, master_path, iter_idx, total_iters):
+        energies_eV = list(self.scan["energies_eV"])
+        total = len(energies_eV)
+        global_total = total * total_iters
+        global_offset = (iter_idx - 1) * total
+
+        scan_meta = {**self.pvs, **self.scan, **self.params,
+                     "energies_eV": energies_eV,
+                     "iteration": iter_idx,
+                     "repeat_count": total_iters,
+                     "hdf5_compression": DEFAULTS.get("hdf5_compression", "gzip"),
+                     "hdf5_gzip_level": DEFAULTS.get("hdf5_gzip_level", 3)}
+        master = MasterH5(master_path, scan_meta)
+
+        try:
             self.log.emit(f"Master file: {master_path}")
             self.log.emit(f"Scanning {total} energies "
                           f"({energies_eV[0]:.2f} → {energies_eV[-1]:.2f} eV)")
@@ -1010,7 +1087,7 @@ class ScanWorker(QThread):
                                      self.scan["rot_data_deg"],
                                      self.params["motor_settle_s"])
 
-                self.progress.emit(i, total)
+                self.progress.emit(global_offset + i, global_total)
                 step_total = time.time() - t0
                 self.log.emit(
                     f"    step {step_total:.2f}s  "
@@ -1033,11 +1110,8 @@ class ScanWorker(QThread):
                         self.log.emit(f"    (next QGMax at step {next_trigger})")
 
             master.set_end_time()
+        finally:
             master.close()
-            self.done.emit(master_path)
-
-        except Exception as ex:
-            self.error.emit(f"Scan error: {ex}")
 
 
 # ── GUI ──────────────────────────────────────────────────────────────────
@@ -1228,6 +1302,32 @@ class Xanes2DGui(QMainWindow):
         acq_box.setLayout(al)
         sl.addWidget(acq_box)
 
+        # Repeat scan — run the same full scan N times every X minutes
+        rep_box = QGroupBox("Repeat scan")
+        rl = QVBoxLayout()
+        rrow = QHBoxLayout()
+        rrow.addWidget(QLabel("Number of repeats:"))
+        self.repeats = QLineEdit("1")
+        self.repeats.setFixedWidth(60)
+        rrow.addWidget(self.repeats)
+        rrow.addWidget(QLabel("Interval (min):"))
+        self.repeat_interval_min = QLineEdit("0")
+        self.repeat_interval_min.setFixedWidth(60)
+        rrow.addWidget(self.repeat_interval_min)
+        rrow.addStretch()
+        rl.addLayout(rrow)
+        self.repeat_info = QLabel("")
+        self.repeat_info.setStyleSheet("color: cyan;")
+        rl.addWidget(self.repeat_info)
+        self.repeat_status = QLabel("")
+        self.repeat_status.setStyleSheet("color: #9ecae1; font-size: 9pt;")
+        rl.addWidget(self.repeat_status)
+        for w_edit in (self.repeats, self.repeat_interval_min):
+            w_edit.textChanged.connect(self._update_repeat_info)
+        rep_box.setLayout(rl)
+        sl.addWidget(rep_box)
+        self._update_repeat_info()
+
         # QGMax trigger (use QGMax's own settings inside pystream)
         qg_box = QGroupBox("QGMax optimization")
         qgl = QHBoxLayout()
@@ -1408,6 +1508,27 @@ class Xanes2DGui(QMainWindow):
         self.energy_info.setText(
             f"{len(energies)} points, {energies[0]:.2f} → {energies[-1]:.2f} eV")
 
+    def _repeat_params(self):
+        try:
+            n = max(1, int(float(self.repeats.text() or "1")))
+        except ValueError:
+            n = 1
+        try:
+            mins = max(0.0, float(self.repeat_interval_min.text() or "0"))
+        except ValueError:
+            mins = 0.0
+        return n, mins
+
+    def _update_repeat_info(self):
+        n, mins = self._repeat_params()
+        if n <= 1:
+            self.repeat_info.setText("single scan")
+        else:
+            total_min = (n - 1) * mins
+            self.repeat_info.setText(
+                f"{n} repeats every {mins:g} min → first→last start ≈ {total_min:g} min"
+            )
+
     def _read_opt_float(self, edit, fallback=None):
         t = edit.text().strip()
         if t == "":
@@ -1430,6 +1551,7 @@ class Xanes2DGui(QMainWindow):
             "topz_ref_mm": float(self.topz_ref.text()),
             "rot_ref_deg": self._read_opt_float(self.rot_ref, None),
         }
+        rep_n, rep_mins = self._repeat_params()
         params = {
             "zp_cal_points":  load_bl_gui_zp_cal_points(),
             "zp_cal_source":  BL_GUI_CAL_FILE,
@@ -1440,6 +1562,8 @@ class Xanes2DGui(QMainWindow):
             "qgmax_every_n": int(self._read_opt_float(self.qgmax_every, 0) or 0),
             "qgmax_pv": self.qgmax_pv.text().strip(),
             "qgmax_timeout_s": float(self._read_opt_float(self.qgmax_timeout, 300.0) or 300.0),
+            "repeat_count": rep_n,
+            "repeat_interval_s": rep_mins * 60.0,
         }
         return pvs, scan, params
 
@@ -1456,7 +1580,19 @@ class Xanes2DGui(QMainWindow):
             self.log("No energies to scan.")
             return
         self.log("---- DRY RUN ----")
-        self.log(f"Master file: {params['master_path']}")
+        save_dir = os.path.dirname(params["master_path"]) or "."
+        base = os.path.basename(params["master_path"])
+        first_path = next_indexed_path(save_dir, base)
+        self.log(f"Master file (first iteration): {first_path}")
+        rep_n = int(params.get("repeat_count", 1) or 1)
+        rep_s = float(params.get("repeat_interval_s", 0.0) or 0.0)
+        if rep_n > 1:
+            total_min = (rep_n - 1) * rep_s / 60.0
+            self.log(
+                f"Will run {rep_n} iterations every {rep_s / 60.0:g} min "
+                f"(first→last start ≈ {total_min:g} min). "
+                f"Files auto-numbered _NNN."
+            )
         self.log(f"{len(energies)} energies, "
                  f"{energies[0]:.2f} → {energies[-1]:.2f} eV "
                  f"(step {scan['energies_eV'][1] - scan['energies_eV'][0] if len(energies) > 1 else 0:.2f} eV)")
@@ -1489,14 +1625,17 @@ class Xanes2DGui(QMainWindow):
             return
         os.makedirs(self.save_dir.text().strip(), exist_ok=True)
 
-        self.progress.setMaximum(len(scan["energies_eV"]))
+        rep_n = int(params.get("repeat_count", 1) or 1)
+        self.progress.setMaximum(len(scan["energies_eV"]) * rep_n)
         self.progress.setValue(0)
+        self.repeat_status.setText("")
         self.btn_start.setEnabled(False)
         self.btn_dry.setEnabled(False)
         self.btn_stop.setEnabled(True)
 
         self._worker = ScanWorker(pvs, scan, params)
         self._worker.progress.connect(self._on_progress)
+        self._worker.repeat_progress.connect(self._on_repeat_progress)
         self._worker.log.connect(self.log)
         self._worker.error.connect(self._on_error)
         self._worker.done.connect(self._on_done)
@@ -1509,6 +1648,12 @@ class Xanes2DGui(QMainWindow):
 
     def _on_progress(self, i, total):
         self.progress.setValue(i)
+
+    def _on_repeat_progress(self, iter_idx, total_iters):
+        if total_iters > 1:
+            self.repeat_status.setText(f"Iteration {iter_idx} / {total_iters}")
+        else:
+            self.repeat_status.setText("")
 
     def _on_error(self, msg):
         self.log(msg)
@@ -1549,6 +1694,8 @@ class Xanes2DGui(QMainWindow):
                 "qgmax_every": self.qgmax_every.text(),
                 "qgmax_pv": self.qgmax_pv.text(),
                 "qgmax_timeout": self.qgmax_timeout.text(),
+                "repeats": self.repeats.text(),
+                "repeat_interval_min": self.repeat_interval_min.text(),
             },
         }
         try:
@@ -1591,6 +1738,10 @@ class Xanes2DGui(QMainWindow):
         self.qgmax_every.setText(sc.get("qgmax_every", self.qgmax_every.text()))
         self.qgmax_pv.setText(sc.get("qgmax_pv", self.qgmax_pv.text()))
         self.qgmax_timeout.setText(sc.get("qgmax_timeout", self.qgmax_timeout.text()))
+        self.repeats.setText(sc.get("repeats", self.repeats.text()))
+        self.repeat_interval_min.setText(
+            sc.get("repeat_interval_min", self.repeat_interval_min.text()))
+        self._update_repeat_info()
         self.log(f"Settings loaded from {self.settings_file}")
 
     def _refresh_bl_gui_cal_status(self):
