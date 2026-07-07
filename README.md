@@ -36,13 +36,21 @@ pip install -e .
 
 ### Running the GUI
 
+The GUI must be launched from inside the **`pystream`** conda env (which has
+PyQt5, pyepics, pvaccess, h5py, etc. installed). The `tomoscan` env referenced
+in the Remote Execution settings is a *separate* env activated on the remote
+host to run `xanes_energy.py` for 3D scans — it is not the env for the GUI
+itself.
+
 ```bash
+conda activate pystream
 xanes-gui
 ```
 
 Or as a Python module:
 
 ```bash
+conda activate pystream
 python -m xanes_gui
 ```
 

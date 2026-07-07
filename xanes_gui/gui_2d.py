@@ -122,6 +122,10 @@ DEFAULTS = {
     "topz_pv":     "32id:m3",
     "rot_pv":      "32id:m4",
 
+    # Fast shutter — closed during the wait between repeat iterations only.
+    # Blank = feature disabled (shutter left untouched).
+    "fast_shutter_pv": "32idbTXM:uniblitz:control",
+
     # Timing
     "motor_settle_s":       0.5,
     "post_energy_settle_s": 2.0,
@@ -883,6 +887,19 @@ class ScanWorker(QThread):
             return pva_get_ndarray(det)
         return img
 
+    def _set_shutter(self, open_state):
+        """Best-effort fast-shutter write. Silently no-ops if the PV field is
+        blank; logs a warning on caput failure but never aborts the scan."""
+        pv = (self.pvs.get("fast_shutter_pv") or "").strip()
+        if not pv:
+            return
+        val = 1 if open_state else 0
+        try:
+            epics.caput(pv, val, wait=False, timeout=3.0)
+            self.log.emit(f"Fast shutter {'OPEN' if open_state else 'CLOSED'} ({pv}={val})")
+        except Exception as ex:
+            self.log.emit(f"WARNING: shutter write failed ({pv}={val}): {ex}")
+
     def _wait_until_next_iter(self, deadline):
         """Sleep until `deadline` (wall-clock), in small chunks so Stop is
         responsive. Logs a warning if we are already past `deadline` (i.e.
@@ -925,7 +942,13 @@ class ScanWorker(QThread):
                 self._run_one_scan(master_path, iter_idx, repeat_count)
                 if self._stop or iter_idx == repeat_count:
                     break
-                self._wait_until_next_iter(iter_start + interval_s)
+                deadline = iter_start + interval_s
+                will_wait = time.time() < deadline
+                if will_wait:
+                    self._set_shutter(False)
+                self._wait_until_next_iter(deadline)
+                if will_wait and not self._stop:
+                    self._set_shutter(True)
 
             self.done.emit(last_path)
 
@@ -1445,6 +1468,7 @@ class Xanes2DGui(QMainWindow):
             ("topx_pv",             "Sample topx motor"),
             ("topz_pv",             "Sample topz motor"),
             ("rot_pv",              "Sample rotation motor"),
+            ("fast_shutter_pv",     "Fast shutter (0=close, 1=open; blank=disable)"),
         ]:
             row = QHBoxLayout()
             lbl = QLabel(default + ":")

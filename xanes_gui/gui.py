@@ -46,6 +46,9 @@ DEFAULTS = {
     "epid_h_on_pv": "32idbSoft:epidH:on",
     "epid_v_on_pv": "32idbSoft:epidV:on",
     "shaker_run_pv": "32idbSoft:epidShaker:shaker:run",
+    # Fast shutter — closed during the wait between repeat iterations only.
+    # Blank = feature disabled (shutter left untouched).
+    "fast_shutter_pv": "32idbTXM:uniblitz:control",
     # Reference curve files (auto-load on element click)
     "curve_dir_calibrated": "",
     "curve_dir_simulated": "",
@@ -439,6 +442,19 @@ class StartScriptWorker(QThread):
             self.log.emit(f"Script exited with code: {rc}")
         return rc
 
+    def _set_shutter(self, open_state):
+        """Best-effort fast-shutter write. Silently no-ops if the PV field is
+        blank; logs a warning on caput failure but never aborts the scan."""
+        pv = (self.remote_config.get("fast_shutter_pv") or "").strip()
+        if not pv:
+            return
+        val = 1 if open_state else 0
+        try:
+            epics.caput(pv, val, wait=False, timeout=3.0)
+            self.log.emit(f"Fast shutter {'OPEN' if open_state else 'CLOSED'} ({pv}={val})")
+        except Exception as ex:
+            self.log.emit(f"WARNING: shutter write failed ({pv}={val}): {ex}")
+
     def _wait_until_next_iter(self, deadline):
         """Sleep until `deadline` (wall-clock) in 0.5 s chunks so Stop stays
         responsive. Logs a warning if we are already past `deadline` (i.e.
@@ -477,7 +493,13 @@ class StartScriptWorker(QThread):
                     )
                 if self._stop_requested or iter_idx == self.repeat_count:
                     break
-                self._wait_until_next_iter(iter_start + self.repeat_interval_s)
+                deadline = iter_start + self.repeat_interval_s
+                will_wait = time.time() < deadline
+                if will_wait:
+                    self._set_shutter(False)
+                self._wait_until_next_iter(deadline)
+                if will_wait and not self._stop_requested:
+                    self._set_shutter(True)
             self.finished.emit(last_rc)
 
         except Exception as ex:
@@ -863,6 +885,7 @@ class XANESGui(QMainWindow):
         self.energy_pv = QLineEdit(DEFAULTS["energy_pv"])
         self.energy_set_pv = QLineEdit(DEFAULTS["energy_set_pv"])
         self.energy_rb_pv = QLineEdit(DEFAULTS["energy_rb_pv"])
+        self.fast_shutter_pv = QLineEdit(DEFAULTS["fast_shutter_pv"])
         self.settle_time = QLineEdit(str(DEFAULTS["settle_s"]))
         self.curve_dir_calibrated = QLineEdit(DEFAULTS["curve_dir_calibrated"])
         self.curve_dir_simulated = QLineEdit(DEFAULTS["curve_dir_simulated"])
@@ -886,6 +909,7 @@ class XANESGui(QMainWindow):
             ("Energy PV (target value):", self.energy_pv, None),
             ("Energy set PV (button):", self.energy_set_pv, None),
             ("Energy RB PV (opt):", self.energy_rb_pv, None),
+            ("Fast shutter PV (0=close, 1=open):", self.fast_shutter_pv, None),
             ("Settle (s):", self.settle_time, None),
             ("Calibrated curves folder:", self.curve_dir_calibrated, "browse_calib"),
             ("Simulated curves folder:", self.curve_dir_simulated, "browse_sim"),
@@ -1644,6 +1668,7 @@ class XANESGui(QMainWindow):
             "work_dir": self.work_dir.text(),
             "conda_path": self.conda_path.text(),
             "script_name": self.script_name.text(),
+            "fast_shutter_pv": self.fast_shutter_pv.text().strip(),
         }
 
         rep_n, rep_mins = self.repeat_params()
@@ -1728,6 +1753,7 @@ class XANESGui(QMainWindow):
             "energy_pv": self.energy_pv.text(),
             "energy_set_pv": self.energy_set_pv.text(),
             "energy_rb_pv": self.energy_rb_pv.text(),
+            "fast_shutter_pv": self.fast_shutter_pv.text(),
             "settle_time": self.settle_time.text(),
             "curve_dir_calibrated": self.curve_dir_calibrated.text(),
             "curve_dir_simulated": self.curve_dir_simulated.text(),
@@ -1768,6 +1794,7 @@ class XANESGui(QMainWindow):
             self.energy_pv.setText(settings.get("energy_pv", DEFAULTS["energy_pv"]))
             self.energy_set_pv.setText(settings.get("energy_set_pv", DEFAULTS["energy_set_pv"]))
             self.energy_rb_pv.setText(settings.get("energy_rb_pv", DEFAULTS["energy_rb_pv"]))
+            self.fast_shutter_pv.setText(settings.get("fast_shutter_pv", DEFAULTS["fast_shutter_pv"]))
             self.settle_time.setText(settings.get("settle_time", str(DEFAULTS["settle_s"])))
             self.curve_dir_calibrated.setText(settings.get("curve_dir_calibrated", DEFAULTS["curve_dir_calibrated"]))
             self.curve_dir_simulated.setText(settings.get("curve_dir_simulated", DEFAULTS["curve_dir_simulated"]))
