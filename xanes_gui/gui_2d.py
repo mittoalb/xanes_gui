@@ -989,6 +989,10 @@ class ScanWorker(QThread):
 
             self._configure_camera_once()
 
+            # Make sure the fast shutter is open before we start acquiring —
+            # user may have left it closed from a previous run.
+            self._set_shutter(True)
+
             # Warmup: move the mono to the starting energy before the timed
             # loop. First real move of the session can be slow (hardware
             # cold-start), so give it a generous deadline and halt the scan
