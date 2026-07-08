@@ -902,8 +902,8 @@ class ScanWorker(QThread):
 
     def _wait_until_next_iter(self, deadline):
         """Sleep until `deadline` (wall-clock), in small chunks so Stop is
-        responsive. Logs a warning if we are already past `deadline` (i.e.
-        the previous scan overran the requested interval)."""
+        responsive. Returns immediately if the deadline is already past
+        (interval_s <= 0)."""
         now = time.time()
         if now >= deadline:
             overrun = now - deadline
@@ -938,13 +938,14 @@ class ScanWorker(QThread):
                 self.log.emit(
                     f"=== Iteration {iter_idx}/{repeat_count} → {master_path} ==="
                 )
-                iter_start = time.time()
                 # Shutter is opened at the top of _run_one_scan and closed in
                 # its finally, so each series is bracketed open-then-close.
                 self._run_one_scan(master_path, iter_idx, repeat_count)
                 if self._stop or iter_idx == repeat_count:
                     break
-                deadline = iter_start + interval_s
+                # Interval is a gap: wait `interval_s` after the scan ends
+                # before starting the next one.
+                deadline = time.time() + interval_s
                 self._wait_until_next_iter(deadline)
 
             self.done.emit(last_path)
