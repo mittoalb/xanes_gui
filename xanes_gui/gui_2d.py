@@ -919,6 +919,7 @@ class ScanWorker(QThread):
             time.sleep(min(0.5, max(0.0, deadline - time.time())))
 
     def run(self):
+        last_path = ""
         try:
             repeat_count = max(1, int(self.params.get("repeat_count", 1) or 1))
             interval_s = float(self.params.get("repeat_interval_s", 0.0) or 0.0)
@@ -927,7 +928,6 @@ class ScanWorker(QThread):
             base_name = os.path.basename(self.params["master_path"])
             os.makedirs(save_dir, exist_ok=True)
 
-            last_path = ""
             for iter_idx in range(1, repeat_count + 1):
                 if self._stop:
                     self.log.emit("Stopped by user.")
@@ -954,6 +954,10 @@ class ScanWorker(QThread):
 
         except Exception as ex:
             self.error.emit(f"Scan error: {ex}")
+        finally:
+            # Always close the fast shutter when the scan series ends,
+            # whether it finished, was stopped, or errored out.
+            self._set_shutter(False)
 
     def _run_one_scan(self, master_path, iter_idx, total_iters):
         energies_eV = list(self.scan["energies_eV"])
