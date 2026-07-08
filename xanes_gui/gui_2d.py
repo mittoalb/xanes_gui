@@ -939,25 +939,18 @@ class ScanWorker(QThread):
                     f"=== Iteration {iter_idx}/{repeat_count} → {master_path} ==="
                 )
                 iter_start = time.time()
+                # Shutter is opened at the top of _run_one_scan and closed in
+                # its finally, so each series is bracketed open-then-close.
                 self._run_one_scan(master_path, iter_idx, repeat_count)
                 if self._stop or iter_idx == repeat_count:
                     break
                 deadline = iter_start + interval_s
-                will_wait = time.time() < deadline
-                if will_wait:
-                    self._set_shutter(False)
                 self._wait_until_next_iter(deadline)
-                if will_wait and not self._stop:
-                    self._set_shutter(True)
 
             self.done.emit(last_path)
 
         except Exception as ex:
             self.error.emit(f"Scan error: {ex}")
-        finally:
-            # Always close the fast shutter when the scan series ends,
-            # whether it finished, was stopped, or errored out.
-            self._set_shutter(False)
 
     def _run_one_scan(self, master_path, iter_idx, total_iters):
         energies_eV = list(self.scan["energies_eV"])
@@ -1143,6 +1136,9 @@ class ScanWorker(QThread):
             master.set_end_time()
         finally:
             master.close()
+            # Close the fast shutter at the end of this scan series.
+            # run() will reopen it at the start of the next iteration.
+            self._set_shutter(False)
 
 
 # ── GUI ──────────────────────────────────────────────────────────────────
