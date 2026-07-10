@@ -527,6 +527,9 @@ class XANESGui(QMainWindow):
         self._custom_energies = None
         self._calib_worker = None
         self._start_worker = None
+        # Tracks whether this scan turned on QGMax's automated mode so we
+        # only disable it if we enabled it.
+        self._qgmax_auto_enabled = False
 
         # Main widget and layout
         main_widget = QWidget()
@@ -804,6 +807,22 @@ class XANESGui(QMainWindow):
             w_edit.textChanged.connect(self.update_repeat_info)
         rep_box.setLayout(rep_outer)
         scan_layout.addWidget(rep_box)
+
+        # QGMax optimization — enable pystream's QGMax automated mode so it
+        # pauses tomoscan every N /exchange/data blocks, runs an optimization,
+        # then resumes. gui.py just tells QGMax when to start/stop; QGMax owns
+        # the pause/optimize/resume loop.
+        qg_box = QGroupBox("QGMax optimization")
+        qgl = QHBoxLayout()
+        qgl.addWidget(QLabel("Run every"))
+        self.qgmax_every = QLineEdit("0")
+        self.qgmax_every.setFixedWidth(50)
+        qgl.addWidget(self.qgmax_every)
+        qgl.addWidget(QLabel("tomoscan(s) (0 = off)"))
+        qgl.addStretch()
+        qgl.addWidget(QLabel("Uses QGMax settings in pystream."))
+        qg_box.setLayout(qgl)
+        scan_layout.addWidget(qg_box)
 
         # Progress bar
         self.progress = QProgressBar()
@@ -1618,6 +1637,21 @@ class XANESGui(QMainWindow):
             QMessageBox.critical(self, "Save Error", f"Failed to save calibration:\n{ex}")
 
     # ---------- Start / Stop ----------
+    def _write_qgmax_request(self, cmd, **extra):
+        """Write ~/.pystream/qgmax_request.json for pystream's QGMax background
+        watcher to pick up. `cmd` is 'auto_enable' or 'auto_disable'; extra
+        fields (e.g. run_every=N) are merged into the payload."""
+        req_path = os.path.expanduser("~/.pystream/qgmax_request.json")
+        payload = {"cmd": cmd, "ts": time.time(), **extra}
+        try:
+            os.makedirs(os.path.dirname(req_path), exist_ok=True)
+            with open(req_path, "w") as fh:
+                json.dump(payload, fh)
+            return True
+        except Exception as ex:
+            self.log(f"WARNING: could not write QGMax request ({cmd}): {ex}")
+            return False
+
     def on_start(self):
         """Launch the start script via SSH in embedded terminal."""
         # Get energy array and validate
@@ -1681,6 +1715,20 @@ class XANESGui(QMainWindow):
             self.log("Starting XANES scan via SSH...")
         self.log("=" * 60)
 
+        # If the user asked for QGMax every N tomoscans, enable pystream's
+        # QGMax automated mode BEFORE launching tomoscan. QGMax then pauses
+        # tomoscan on the Nth /exchange/data event, optimizes, and resumes.
+        try:
+            qg_n = int(float(self.qgmax_every.text().strip() or 0))
+        except ValueError:
+            qg_n = 0
+        if qg_n > 0:
+            if self._write_qgmax_request("auto_enable", run_every=qg_n):
+                self._qgmax_auto_enabled = True
+                self.log(f"QGMax automated mode ENABLED (every {qg_n} tomoscan(s))")
+        else:
+            self._qgmax_auto_enabled = False
+
         # Create and start worker with remote configuration
         self._start_worker = StartScriptWorker(
             remote_config,
@@ -1693,13 +1741,22 @@ class XANESGui(QMainWindow):
         self._start_worker.error.connect(self.on_start_error)
         self._start_worker.start()
 
+    def _disable_qgmax_auto_if_enabled(self):
+        """If this scan enabled QGMax's automated mode, turn it off."""
+        if self._qgmax_auto_enabled:
+            if self._write_qgmax_request("auto_disable"):
+                self.log("QGMax automated mode DISABLED")
+            self._qgmax_auto_enabled = False
+
     def on_start_finished(self, exit_code):
         """Handle start script completion."""
+        self._disable_qgmax_auto_if_enabled()
         self.reset_buttons()
 
     def on_start_error(self, error):
         """Handle start script error."""
         self.log(error)
+        self._disable_qgmax_auto_if_enabled()
         QMessageBox.critical(self, "Start error", error)
         self.reset_buttons()
 
@@ -1714,6 +1771,8 @@ class XANESGui(QMainWindow):
         if self._start_worker and self._start_worker.isRunning():
             self._start_worker.stop()
             self._start_worker.wait()
+
+        self._disable_qgmax_auto_if_enabled()
 
         # Optional safety PVs
         try:
