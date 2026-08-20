@@ -32,6 +32,96 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 
 pg.setConfigOptions(imageAxisOrder='row-major')
+# Dark theme to match pystream — black plot canvas + white axes/labels.
+pg.setConfigOption('background', 'k')
+pg.setConfigOption('foreground', 'w')
+
+
+# Qt stylesheet mirroring pystream._apply_dark_theme so the viewer looks
+# native when launched from the pystream toolbar (aTomo, XANES, etc. all
+# use the same dark palette).
+_DARK_STYLESHEET = """
+    QMainWindow, QWidget, QDialog {
+        background-color: #1a1a1a;
+        color: #e0e0e0;
+    }
+    QPushButton {
+        background-color: #2d2d2d;
+        color: #e0e0e0;
+        padding: 6px 12px;
+        border: 1px solid #404040;
+        border-radius: 3px;
+    }
+    QPushButton:hover {
+        background-color: #3a3a3a;
+        border: 1px solid #505050;
+    }
+    QPushButton:pressed {
+        background-color: #252525;
+    }
+    QPushButton:checked {
+        background-color: #1e5a8e;
+        border: 1px solid #2980b9;
+    }
+    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit {
+        background-color: #2d2d2d;
+        color: #e0e0e0;
+        padding: 4px 8px;
+        border: 1px solid #404040;
+        border-radius: 3px;
+    }
+    QCheckBox { color: #e0e0e0; spacing: 5px; }
+    QCheckBox::indicator {
+        width: 16px; height: 16px;
+        border: 1px solid #404040;
+        border-radius: 3px;
+        background-color: #2d2d2d;
+    }
+    QCheckBox::indicator:checked {
+        background-color: #2980b9;
+        border: 1px solid #3a95d8;
+    }
+    QGroupBox {
+        color: #e0e0e0;
+        border: 1px solid #404040;
+        border-radius: 5px;
+        margin-top: 12px;
+        padding-top: 12px;
+        font-weight: bold;
+    }
+    QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
+    QLabel { color: #e0e0e0; }
+    QTabWidget::pane { border: 1px solid #404040; }
+    QTabBar::tab {
+        background: #2d2d2d; color: #e0e0e0;
+        padding: 6px 12px; border: 1px solid #404040;
+    }
+    QTabBar::tab:selected { background: #1e5a8e; }
+    QSlider::groove:horizontal {
+        border: 1px solid #404040; height: 6px;
+        background: #2d2d2d; border-radius: 3px;
+    }
+    QSlider::handle:horizontal {
+        background: #2980b9; border: 1px solid #3a95d8;
+        width: 14px; margin: -5px 0; border-radius: 7px;
+    }
+    QSlider::handle:horizontal:hover { background: #3a95d8; }
+    QHeaderView::section {
+        background-color: #2d2d2d; color: #e0e0e0;
+        padding: 4px; border: 1px solid #404040;
+    }
+    QTableView, QTreeView, QListView {
+        background-color: #1a1a1a; color: #e0e0e0;
+        alternate-background-color: #232323;
+        gridline-color: #404040;
+    }
+    QScrollBar:vertical, QScrollBar:horizontal {
+        background: #1a1a1a; border: 1px solid #2d2d2d;
+    }
+    QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+        background: #404040; border-radius: 3px;
+    }
+"""
 
 
 # ── Metadata helpers (adapted from tomogui/src/tomogui/hdf5_viewer.py) ────
@@ -913,6 +1003,7 @@ class Viewer2D(QtWidgets.QMainWindow):
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(argv)
+    app.setStyleSheet(_DARK_STYLESHEET)
     file_path = argv[1] if len(argv) > 1 else None
     win = Viewer2D(file_path=file_path)
     win.show()

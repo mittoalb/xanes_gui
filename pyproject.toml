@@ -73,6 +73,7 @@ Changelog = "https://github.com/mittoalb/xanes-gui/blob/main/CHANGELOG.md"
 
 [project.scripts]
 xanes-gui = "xanes_gui:main"
+xanes-cli = "xanes_gui.cli:main"
 
 [tool.setuptools]
 packages = ["xanes_gui"]
