@@ -126,6 +126,14 @@ DEFAULTS = {
     # Blank = feature disabled (shutter left untouched).
     "fast_shutter_pv": "32idbTXM:uniblitz:control",
 
+    # B-station shutter (same PVs as bl_gui). Closed during the wait between
+    # repeat iterations when that wait is at least B_SHUTTER_MIN_WAIT_S, and
+    # opened (waiting for the status) before each iteration. Status record
+    # reads 1 = closed. Blank open/close PV = feature disabled.
+    "b_shutter_open_pv":   "32idb:rshtrB:Open.PROC",
+    "b_shutter_close_pv":  "32idb:rshtrB:Close.PROC",
+    "b_shutter_status_pv": "PB:32ID:STA_B_SBS_CLSD_PL",
+
     # Timing
     "motor_settle_s":       0.5,
     "post_energy_settle_s": 2.0,
@@ -137,6 +145,11 @@ DEFAULTS = {
     "hdf5_gzip_level": 1,
 }
 
+
+# B-station shutter: only cycled for waits at least this long, and an open
+# must be confirmed by the status PV within the timeout.
+B_SHUTTER_MIN_WAIT_S = 60.0
+B_SHUTTER_TIMEOUT_S  = 30.0
 
 BL_GUI_CAL_FILE = os.path.expanduser("~/.bl_gui/bl32id_zp_calibration.json")
 
@@ -900,6 +913,44 @@ class ScanWorker(QThread):
         except Exception as ex:
             self.log.emit(f"WARNING: shutter write failed ({pv}={val}): {ex}")
 
+    def _b_shutter_closed(self):
+        """True/False from the B-shutter status record (1 = closed), None
+        if no status PV is configured or it can't be read."""
+        st = (self.pvs.get("b_shutter_status_pv") or "").strip()
+        if not st:
+            return None
+        v = epics.caget(st, timeout=2.0, use_monitor=False)
+        return None if v is None else bool(int(v))
+
+    def _set_b_shutter(self, open_state, timeout=B_SHUTTER_TIMEOUT_S):
+        """Open/close the B-station shutter and wait for its status. A failed
+        OPEN raises (images would be dark); a failed close only warns."""
+        pv = (self.pvs.get("b_shutter_open_pv" if open_state
+                           else "b_shutter_close_pv") or "").strip()
+        if not pv:
+            return
+        word = "open" if open_state else "closed"
+        if self._b_shutter_closed() is (not open_state):
+            self.log.emit(f"B shutter already {word}")
+            return
+        self.log.emit(f"B shutter {'opening' if open_state else 'closing'} ({pv})")
+        epics.caput(pv, 1, wait=False, timeout=3.0)
+        if not (self.pvs.get("b_shutter_status_pv") or "").strip():
+            time.sleep(3.0)          # no status PV: give it the usual stroke time
+            return
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._b_shutter_closed() is (not open_state):
+                self.log.emit(f"B shutter {word}")
+                return
+            if self._stop:
+                return
+            time.sleep(0.2)
+        msg = f"B shutter not {word} after {timeout:.0f}s"
+        if open_state:
+            raise RuntimeError(msg + " — check the PSS / hutch search")
+        self.log.emit("WARNING: " + msg)
+
     def _wait_until_next_iter(self, deadline):
         """Sleep until `deadline` (wall-clock), in small chunks so Stop is
         responsive. Returns immediately if the deadline is already past
@@ -944,7 +995,10 @@ class ScanWorker(QThread):
                 if self._stop or iter_idx == repeat_count:
                     break
                 # Interval is a gap: wait `interval_s` after the scan ends
-                # before starting the next one.
+                # before starting the next one. Long waits: close the
+                # B-station shutter too (reopened at the next iteration).
+                if interval_s >= B_SHUTTER_MIN_WAIT_S:
+                    self._set_b_shutter(False)
                 deadline = time.time() + interval_s
                 self._wait_until_next_iter(deadline)
 
@@ -987,8 +1041,10 @@ class ScanWorker(QThread):
 
             self._configure_camera_once()
 
-            # Make sure the fast shutter is open before we start acquiring —
-            # user may have left it closed from a previous run.
+            # Make sure the B-station and fast shutters are open before we
+            # start acquiring — they may be closed from the previous
+            # iteration's wait or a previous run.
+            self._set_b_shutter(True)
             self._set_shutter(True)
 
             # Warmup: move the mono to the starting energy before the timed
@@ -1474,6 +1530,9 @@ class Xanes2DGui(QMainWindow):
             ("topz_pv",             "Sample topz motor"),
             ("rot_pv",              "Sample rotation motor"),
             ("fast_shutter_pv",     "Fast shutter (0=close, 1=open; blank=disable)"),
+            ("b_shutter_open_pv",   "B shutter open PV (blank=disable)"),
+            ("b_shutter_close_pv",  "B shutter close PV"),
+            ("b_shutter_status_pv", "B shutter status (1=closed)"),
         ]:
             row = QHBoxLayout()
             lbl = QLabel(default + ":")
