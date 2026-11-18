@@ -904,7 +904,7 @@ class ScanWorker(QThread):
         """Best-effort fast-shutter write. Silently no-ops if the PV field is
         blank; logs a warning on caput failure but never aborts the scan."""
         pv = (self.pvs.get("fast_shutter_pv") or "").strip()
-        if not pv:
+        if not pv or not self.params.get("use_fast_shutter", True):
             return
         val = 1 if open_state else 0
         try:
@@ -927,7 +927,7 @@ class ScanWorker(QThread):
         OPEN raises (images would be dark); a failed close only warns."""
         pv = (self.pvs.get("b_shutter_open_pv" if open_state
                            else "b_shutter_close_pv") or "").strip()
-        if not pv:
+        if not pv or not self.params.get("use_b_shutter", True):
             return
         word = "open" if open_state else "closed"
         if self._b_shutter_closed() is (not open_state):
@@ -1408,6 +1408,21 @@ class Xanes2DGui(QMainWindow):
         rl.addWidget(self.repeat_status)
         for w_edit in (self.repeats, self.repeat_interval_min):
             w_edit.textChanged.connect(self._update_repeat_info)
+        srow = QHBoxLayout()
+        self.use_fast_shutter = QCheckBox("Use fast shutter")
+        self.use_fast_shutter.setToolTip(
+            "Open the fast shutter at the start of each scan and close it at "
+            "the end. Untick to leave it untouched.")
+        self.use_b_shutter = QCheckBox("Close B-station shutter between repeats")
+        self.use_b_shutter.setToolTip(
+            "For waits of 60 s or more, close the B-station shutter and open it "
+            "(checking its status) before the next repeat. Untick to leave it "
+            "untouched.")
+        for cb in (self.use_fast_shutter, self.use_b_shutter):
+            cb.setChecked(True)
+            srow.addWidget(cb)
+        srow.addStretch()
+        rl.addLayout(srow)
         rep_box.setLayout(rl)
         sl.addWidget(rep_box)
         self._update_repeat_info()
@@ -1648,6 +1663,8 @@ class Xanes2DGui(QMainWindow):
             "master_path": os.path.join(self.save_dir.text().strip(),
                                         self.master_name.text().strip()),
             "qgmax_every_n": int(self._read_opt_float(self.qgmax_every, 0) or 0),
+            "use_fast_shutter": self.use_fast_shutter.isChecked(),
+            "use_b_shutter":    self.use_b_shutter.isChecked(),
             "qgmax_pv": self.qgmax_pv.text().strip(),
             "qgmax_timeout_s": float(self._read_opt_float(self.qgmax_timeout, 300.0) or 300.0),
             "repeat_count": rep_n,
@@ -1784,6 +1801,8 @@ class Xanes2DGui(QMainWindow):
                 "qgmax_timeout": self.qgmax_timeout.text(),
                 "repeats": self.repeats.text(),
                 "repeat_interval_min": self.repeat_interval_min.text(),
+                "use_fast_shutter": self.use_fast_shutter.isChecked(),
+                "use_b_shutter": self.use_b_shutter.isChecked(),
             },
         }
         try:
@@ -1829,6 +1848,8 @@ class Xanes2DGui(QMainWindow):
         self.repeats.setText(sc.get("repeats", self.repeats.text()))
         self.repeat_interval_min.setText(
             sc.get("repeat_interval_min", self.repeat_interval_min.text()))
+        self.use_fast_shutter.setChecked(bool(sc.get("use_fast_shutter", True)))
+        self.use_b_shutter.setChecked(bool(sc.get("use_b_shutter", True)))
         self._update_repeat_info()
         self.log(f"Settings loaded from {self.settings_file}")
 
