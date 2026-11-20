@@ -36,7 +36,7 @@ import h5py
 import numpy as np
 import epics
 import pvaccess as pva
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                              QFileDialog, QFrame, QGroupBox, QHBoxLayout,
@@ -1307,6 +1307,18 @@ class Xanes2DGui(QMainWindow):
         # Pick up shared calibration curve directory from the 1-D GUI.
         self._refresh_shared_curve_settings()
 
+        # Save the settings by themselves, 1 s after the last edit. DataMap
+        # and 2D Time Series (pystream) read this file, so it must always
+        # hold what this window shows — not what was last saved by hand.
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(1000)
+        self._autosave_timer.timeout.connect(lambda: self._save_settings(quiet=True))
+        for edit in self.tabs.findChildren(QLineEdit):
+            edit.textChanged.connect(self._autosave_timer.start)
+        for box in self.tabs.findChildren(QCheckBox):
+            box.toggled.connect(self._autosave_timer.start)
+
         self.log("XANES 2D GUI ready.")
 
     # ── visuals ────────────────────────────────────────────────────────
@@ -1815,6 +1827,8 @@ class Xanes2DGui(QMainWindow):
 
     # ── start / stop ───────────────────────────────────────────────────
     def _on_start(self):
+        self._autosave_timer.stop()
+        self._save_settings(quiet=True)
         try:
             pvs, scan, params = self._gather_config()
         except ValueError as ex:
@@ -1873,7 +1887,7 @@ class Xanes2DGui(QMainWindow):
     def _save_settings_clicked(self):
         self._save_settings(popup=True)
 
-    def _save_settings(self, popup=False):
+    def _save_settings(self, popup=False, quiet=False):
         data = {
             "pvs": {k: self.pv_edits[k].text() for k in self.pv_edits},
             "scan": {
@@ -1902,9 +1916,13 @@ class Xanes2DGui(QMainWindow):
             },
         }
         try:
-            with open(self.settings_file, "w") as fh:
+            # Write-then-rename so a reader never sees a half-written file.
+            tmp = f"{self.settings_file}.tmp.{os.getpid()}"
+            with open(tmp, "w") as fh:
                 json.dump(data, fh, indent=2)
-            self.log(f"Settings saved to {self.settings_file}")
+            os.replace(tmp, self.settings_file)
+            if not quiet:
+                self.log(f"Settings saved to {self.settings_file}")
             if popup:
                 QMessageBox.information(self, "Saved",
                                         f"Settings saved to:\n{self.settings_file}")
