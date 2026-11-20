@@ -368,6 +368,7 @@ class MetadataViewer(QtWidgets.QWidget):
 
 DATA_PATH = 'exchange/data'
 FLAT_PATH = 'exchange/data_flat'
+FLAT_INDEX_PATH = 'exchange/flat_index'
 ENERGY_PATH = 'exchange/energy'
 
 
@@ -386,6 +387,7 @@ class Viewer2D(QtWidgets.QMainWindow):
         # Datasets
         self.data_ds = None
         self.flat_ds = None
+        self.flat_index = None
         self.ext_flat_ds = None
         self.energies = None
 
@@ -666,6 +668,10 @@ class Viewer2D(QtWidgets.QMainWindow):
 
         self.data_ds = self.hdf5_file[DATA_PATH]
         self.flat_ds = self.hdf5_file[FLAT_PATH]
+        # Scans that take a reference only every N energies store which
+        # reference belongs to each data frame; older files are 1:1.
+        self.flat_index = (np.asarray(self.hdf5_file[FLAT_INDEX_PATH])
+                           if FLAT_INDEX_PATH in self.hdf5_file else None)
         self.energies = None
         if ENERGY_PATH in self.hdf5_file:
             try:
@@ -811,8 +817,11 @@ class Viewer2D(QtWidgets.QMainWindow):
             return np.array(self.ext_flat_ds[index])
         if self.flat_ds is None:
             return None
-        # Clamp to the last available flat, matching tomogui's behavior.
-        idx = min(index, self.flat_ds.shape[0] - 1)
+        if self.flat_index is not None and 0 <= index < len(self.flat_index):
+            idx = int(self.flat_index[index])       # reference for this frame
+        else:
+            # Clamp to the last available flat, matching tomogui's behavior.
+            idx = min(index, self.flat_ds.shape[0] - 1)
         if idx < 0:
             return None
         return np.array(self.flat_ds[idx])

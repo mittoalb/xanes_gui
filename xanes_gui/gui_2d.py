@@ -376,7 +376,11 @@ class MasterH5:
     Layout:
       /exchange/
         data              (N, H, W)  — sample frames
-        data_flat         (N, H, W)  — reference frames
+        data_flat         (M, H, W)  — reference frames (M = N unless a
+                                       reference is taken every k-th energy)
+        flat_index        (N,)  — for each data frame, the data_flat index
+                                  of its reference (the most recent one)
+        energy_flat       (M,)  [eV] — energy of each reference frame
         energy            (N,)  [eV]
         zp_position       (N,)  [mm]
         theta_data        (N,)  [deg]
@@ -435,6 +439,14 @@ class MasterH5:
         self._theta_f_ds = self.exchange.create_dataset(
             "theta_flat", shape=(0,), maxshape=(None,), dtype="f8")
         self._theta_f_ds.attrs["units"] = "deg"
+        self._flat_idx_ds = self.exchange.create_dataset(
+            "flat_index", shape=(0,), maxshape=(None,), dtype="i4")
+        self._flat_idx_ds.attrs["description"] = (
+            "data_flat index of the reference used for each data frame")
+        self._e_flat_ds = self.exchange.create_dataset(
+            "energy_flat", shape=(0,), maxshape=(None,), dtype="f8")
+        self._e_flat_ds.attrs["units"] = "eV"
+        self.exchange.attrs["ref_every_n"] = int(scan_meta.get("ref_every_n", 1) or 1)
 
         # /measurement/instrument — static
         self.measurement = self.f.create_group("measurement")
@@ -485,12 +497,22 @@ class MasterH5:
         self._data_ds.resize(n + 1, axis=0)
         self._data_ds[n] = arr
 
-    def append_flat(self, arr):
+    def append_flat(self, arr, energy_eV=float("nan")):
+        """Append a reference frame; returns its index in data_flat."""
         if self._flat_ds is None:
             self._flat_ds = self._ensure("data_flat", arr)
         n = self._flat_ds.shape[0]
         self._flat_ds.resize(n + 1, axis=0)
         self._flat_ds[n] = arr
+        m = self._e_flat_ds.shape[0]
+        self._e_flat_ds.resize(m + 1, axis=0)
+        self._e_flat_ds[m] = energy_eV
+        return n
+
+    def append_flat_index(self, idx):
+        n = self._flat_idx_ds.shape[0]
+        self._flat_idx_ds.resize(n + 1, axis=0)
+        self._flat_idx_ds[n] = int(idx)
 
     # ── per-step bookkeeping ───────────────────────────────────────────
     def append_meta(self, energy_eV, zp_mm, theta_d, theta_f):
@@ -1060,6 +1082,13 @@ class ScanWorker(QThread):
 
             instrument_snapshot_written = False
 
+            ref_every = max(1, int(self.params.get("ref_every_n", 1) or 1))
+            last_flat_idx = -1
+            if ref_every > 1:
+                n_refs = len({j for j in range(1, total + 1)
+                              if (j - 1) % ref_every == 0 or j == total})
+                self.log.emit(f"Reference every {ref_every} energies "
+                              f"(+ the last): {n_refs} of {total}")
             for i, e_eV in enumerate(energies_eV, start=1):
                 if self._stop:
                     self.log.emit("Stopped by user.")
@@ -1115,32 +1144,40 @@ class ScanWorker(QThread):
                     master.write_instrument_snapshot(snap)
                     instrument_snapshot_written = True
 
-                # REF / FLAT
+                # REF / FLAT — on the first energy, every ref_every-th one
+                # after it, and always on the last, so both ends of the
+                # range have their own reference.
+                take_ref = ((i - 1) % ref_every == 0) or (i == total)
+                ref_topx_rbv = ref_topz_rbv = ref_rot_rbv = None
+                t_move_ref = t_acq_flat = 0.0
                 tM2 = time.time()
-                self._move_motor(self.pvs["topx_pv"], self.scan["topx_ref_mm"],
-                                 self.params["motor_settle_s"])
-                self._move_motor(self.pvs["topz_pv"], self.scan["topz_ref_mm"],
-                                 self.params["motor_settle_s"])
-                if self.scan.get("rot_ref_deg") is not None:
-                    self._move_motor(self.pvs["rot_pv"],
-                                     self.scan["rot_ref_deg"],
+                if take_ref:
+                    self._move_motor(self.pvs["topx_pv"], self.scan["topx_ref_mm"],
                                      self.params["motor_settle_s"])
-                if self._stop:
-                    break
+                    self._move_motor(self.pvs["topz_pv"], self.scan["topz_ref_mm"],
+                                     self.params["motor_settle_s"])
+                    if self.scan.get("rot_ref_deg") is not None:
+                        self._move_motor(self.pvs["rot_pv"],
+                                         self.scan["rot_ref_deg"],
+                                         self.params["motor_settle_s"])
+                    if self._stop:
+                        break
 
-                ref_topx_rbv = self._rbv(self.pvs.get("topx_pv"))
-                ref_topz_rbv = self._rbv(self.pvs.get("topz_pv"))
-                ref_rot_rbv = self._rbv(self.pvs.get("rot_pv"))
-                t_move_ref = time.time() - tM2
+                    ref_topx_rbv = self._rbv(self.pvs.get("topx_pv"))
+                    ref_topz_rbv = self._rbv(self.pvs.get("topz_pv"))
+                    ref_rot_rbv = self._rbv(self.pvs.get("rot_pv"))
+                    t_move_ref = time.time() - tM2
 
-                tA2 = time.time()
-                flat_img = self._acquire_one()
-                if flat_img is None:
-                    break
-                t_acq_flat = time.time() - tA2
+                    tA2 = time.time()
+                    flat_img = self._acquire_one()
+                    if flat_img is None:
+                        break
+                    t_acq_flat = time.time() - tA2
 
                 tS2 = time.time()
-                master.append_flat(flat_img)
+                if take_ref:
+                    last_flat_idx = master.append_flat(flat_img, e_eV)
+                master.append_flat_index(last_flat_idx)
                 master.append_meta(
                     e_eV, zp,
                     self.scan.get("rot_data_deg"),
@@ -1162,7 +1199,7 @@ class ScanWorker(QThread):
                 t_save_flat = time.time() - tS2
 
                 # Return to data rotation for next step if we rotated for ref
-                if (self.scan.get("rot_ref_deg") is not None
+                if (take_ref and self.scan.get("rot_ref_deg") is not None
                         and self.scan.get("rot_data_deg") is not None):
                     self._move_motor(self.pvs["rot_pv"],
                                      self.scan["rot_data_deg"],
@@ -1383,6 +1420,18 @@ class Xanes2DGui(QMainWindow):
         self.post_energy_settle = QLineEdit(str(DEFAULTS["post_energy_settle_s"]))
         h.addWidget(self.post_energy_settle)
         al.addLayout(h)
+        h2 = QHBoxLayout()
+        h2.addWidget(QLabel("Reference every"))
+        self.ref_every = QLineEdit("1")
+        self.ref_every.setFixedWidth(50)
+        self.ref_every.setToolTip(
+            "Take the reference (flat) image only every N energies instead of at "
+            "every one. The first and the last energy always get one; the other "
+            "energies use the most recent reference (see /exchange/flat_index).")
+        h2.addWidget(self.ref_every)
+        h2.addWidget(QLabel("energies (1 = every energy; first and last always)"))
+        h2.addStretch()
+        al.addLayout(h2)
         acq_box.setLayout(al)
         sl.addWidget(acq_box)
 
@@ -1660,6 +1709,7 @@ class Xanes2DGui(QMainWindow):
             "zp_cal_source":  BL_GUI_CAL_FILE,
             "motor_settle_s": float(self.motor_settle.text()),
             "post_energy_settle_s": float(self.post_energy_settle.text()),
+            "ref_every_n": max(1, int(float(self.ref_every.text() or "1"))),
             "master_path": os.path.join(self.save_dir.text().strip(),
                                         self.master_name.text().strip()),
             "qgmax_every_n": int(self._read_opt_float(self.qgmax_every, 0) or 0),
@@ -1701,6 +1751,11 @@ class Xanes2DGui(QMainWindow):
         self.log(f"{len(energies)} energies, "
                  f"{energies[0]:.2f} → {energies[-1]:.2f} eV "
                  f"(step {scan['energies_eV'][1] - scan['energies_eV'][0] if len(energies) > 1 else 0:.2f} eV)")
+        k = params.get("ref_every_n", 1)
+        refs = [j for j in range(1, len(energies) + 1)
+                if (j - 1) % k == 0 or j == len(energies)]
+        self.log(f"References: {len(refs)} of {len(energies)} energies"
+                 + (f" (every {k}, + the last): points {refs}" if k > 1 else " (every energy)"))
         self.log(f"DATA pos: topx={scan['topx_data_mm']}, topz={scan['topz_data_mm']}, "
                  f"rot={scan['rot_data_deg']}")
         self.log(f"REF  pos: topx={scan['topx_ref_mm']}, topz={scan['topz_ref_mm']}, "
@@ -1788,6 +1843,7 @@ class Xanes2DGui(QMainWindow):
                 "exposure": self.exposure.text(),
                 "motor_settle": self.motor_settle.text(),
                 "post_energy_settle": self.post_energy_settle.text(),
+                "ref_every": self.ref_every.text(),
                 "topx_data": self.topx_data.text(),
                 "topz_data": self.topz_data.text(),
                 "rot_data": self.rot_data.text(),
@@ -1834,6 +1890,7 @@ class Xanes2DGui(QMainWindow):
         self.exposure.setText(sc.get("exposure", self.exposure.text()))
         self.motor_settle.setText(sc.get("motor_settle", self.motor_settle.text()))
         self.post_energy_settle.setText(sc.get("post_energy_settle", self.post_energy_settle.text()))
+        self.ref_every.setText(str(sc.get("ref_every", "1")))
         self.topx_data.setText(sc.get("topx_data", self.topx_data.text()))
         self.topz_data.setText(sc.get("topz_data", self.topz_data.text()))
         self.rot_data.setText(sc.get("rot_data", self.rot_data.text()))
