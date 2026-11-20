@@ -148,6 +148,8 @@ DEFAULTS = {
 
 # B-station shutter: only cycled for waits at least this long, and an open
 # must be confirmed by the status PV within the timeout.
+ENERGY_CHANGE_TIMEOUT_S = 120.0   # max wait for TXMOptics EnergySet → 0
+
 B_SHUTTER_MIN_WAIT_S = 60.0
 B_SHUTTER_TIMEOUT_S  = 30.0
 
@@ -752,6 +754,30 @@ class ScanWorker(QThread):
         if settle > 0:
             time.sleep(settle)
 
+    def _wait_energy_change_done(self, timeout=ENERGY_CHANGE_TIMEOUT_S):
+        """Wait for TXMOptics to finish the energy change it runs when
+        EnergySet goes to 1 (mono, undulator gap, and — with
+        EnergyUseCalibration = Yes — zone plate / Queensgate / detector
+        from its calibration files). EnergySet is a busy record that the
+        server puts back to 0 when it is done.
+
+        Without this wait, small steps (e.g. 1 eV with a 1 eV readback
+        tolerance) pass the readback check immediately and the data image is
+        taken while the optics are still moving — dark data frames."""
+        pv = self.pvs.get("energy_set_pv")
+        if not pv:
+            return True
+        t0 = time.time()
+        # Make sure we see the busy state first, so we don't read a stale 0
+        # from before our own put.
+        self._wait_for(pv, lambda v: v is not None and int(v) == 1, timeout=2.0)
+        done = self._wait_for(pv, lambda v: v is not None and int(v) == 0,
+                              timeout=timeout)
+        if not done and not self._stop:
+            self.log.emit(f"    WARNING: energy change still busy after "
+                          f"{time.time() - t0:.0f}s ({pv} = 1) — continuing")
+        return done
+
     def _set_energy(self, e_value):
         units = self.pvs.get("energy_units", "keV")
         e_for_pv = e_value / 1000.0 if units == "keV" else e_value
@@ -765,6 +791,7 @@ class ScanWorker(QThread):
             # move. Force 0 first to guarantee a clean 0→1 edge.
             self._put(self.pvs["energy_set_pv"], 0, wait=False)
             self._put(self.pvs["energy_set_pv"], 1, wait=False)
+            self._wait_energy_change_done()
         rb_pv = self.pvs.get("energy_rb_pv")
         if rb_pv:
             tol = float(self.pvs.get("energy_tol", 0.001))
@@ -804,6 +831,7 @@ class ScanWorker(QThread):
         if self.pvs.get("energy_set_pv"):
             self._put(self.pvs["energy_set_pv"], 0, wait=False)
             self._put(self.pvs["energy_set_pv"], 1, wait=False)
+            self._wait_energy_change_done()
 
         if not rb_pv:
             time.sleep(float(self.params.get("post_energy_settle_s", 2.0)))
@@ -1082,6 +1110,18 @@ class ScanWorker(QThread):
 
             instrument_snapshot_written = False
 
+            # A REF rotation with a blank DATA rotation used to leave the
+            # sample at the REF angle for every data image after the first
+            # (nothing turned it back). Blank DATA rotation now means "the
+            # angle the scan started at".
+            if (self.scan.get("rot_ref_deg") is not None
+                    and self.scan.get("rot_data_deg") is None):
+                start_rot = self._rbv(self.pvs.get("rot_pv"))
+                if start_rot is not None:
+                    self.scan["rot_data_deg"] = float(start_rot)
+                    self.log.emit(f"DATA rotation blank, REF rotation "
+                                  f"{self.scan['rot_ref_deg']:g}° — data images at "
+                                  f"the start angle {start_rot:.3f}°")
             ref_every = max(1, int(self.params.get("ref_every_n", 1) or 1))
             last_flat_idx = -1
             if ref_every > 1:
