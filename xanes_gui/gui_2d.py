@@ -45,6 +45,23 @@ from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                              QScrollArea, QTabWidget, QTextEdit,
                              QVBoxLayout, QWidget)
 
+# Scan status for the shared beamline registry (Agents panel, Slack bot).
+# This file runs both as a script (launcher) and as xanes_gui.gui_2d
+# (headless, pystream DataMap) — try both import forms; never fail.
+try:
+    from .scan_status import ScanStatus
+except ImportError:
+    try:
+        from scan_status import ScanStatus
+    except ImportError:
+        ScanStatus = None
+
+
+class _NoScanStatus:
+    """Stand-in when status publishing is off or unavailable."""
+    def __getattr__(self, _name):
+        return lambda *a, **k: None
+
 
 HC_EV_NM = 1239.84198  # eV·nm
 
@@ -569,6 +586,7 @@ class ScanWorker(QThread):
         self.params = params              # dict with ZP, geometry, output
         self._stop = False
         self._pv_cache = {}               # cached epics.PV objects
+        self._status = _NoScanStatus()    # real one made in run()
 
     def stop(self):
         self._stop = True
@@ -1019,11 +1037,34 @@ class ScanWorker(QThread):
         while not self._stop and time.time() < deadline:
             time.sleep(min(0.5, max(0.0, deadline - time.time())))
 
+    def _make_status(self, repeat_count):
+        """ScanStatus for this run. params["scan_status"] = False turns it
+        off (a caller that publishes its own record)."""
+        if ScanStatus is None or self.params.get("scan_status", True) is False:
+            return _NoScanStatus()
+        try:
+            energies = list(self.scan.get("energies_eV") or [])
+            return ScanStatus(
+                "XANES 2D",
+                total=len(energies) * repeat_count,
+                file=self.params.get("master_path"),
+                n_energies=len(energies),
+                energy_start_eV=energies[0] if energies else None,
+                energy_end_eV=energies[-1] if energies else None,
+                exposure_s=self.scan.get("exposure_s"),
+                ref_every_n=int(self.params.get("ref_every_n", 1) or 1),
+                repeat_count=repeat_count,
+            )
+        except Exception:
+            return _NoScanStatus()
+
     def run(self):
         last_path = ""
+        self._status = _NoScanStatus()
         try:
             repeat_count = max(1, int(self.params.get("repeat_count", 1) or 1))
             interval_s = float(self.params.get("repeat_interval_s", 0.0) or 0.0)
+            self._status = self._make_status(repeat_count)
 
             save_dir = os.path.dirname(self.params["master_path"])
             base_name = os.path.basename(self.params["master_path"])
@@ -1050,12 +1091,25 @@ class ScanWorker(QThread):
                 if interval_s >= B_SHUTTER_MIN_WAIT_S:
                     self._set_b_shutter(False)
                 deadline = time.time() + interval_s
+                self._status.activity(
+                    f"waiting {interval_s:.0f} s before iteration "
+                    f"{iter_idx + 1}/{repeat_count}")
                 self._wait_until_next_iter(deadline)
 
+            if self._stop:
+                self._status.aborted(f"stopped by user — last file {last_path}")
+            else:
+                self._status.finish(f"{repeat_count} iteration(s), last file "
+                                    f"{last_path}" if repeat_count > 1
+                                    else f"done → {last_path}")
             self.done.emit(last_path)
 
         except Exception as ex:
+            self._status.error(f"Scan error: {ex}")
             self.error.emit(f"Scan error: {ex}")
+        except BaseException as ex:      # KeyboardInterrupt in headless use
+            self._status.error(f"{type(ex).__name__}: {ex}")
+            raise
 
     def _run_one_scan(self, master_path, iter_idx, total_iters):
         energies_eV = list(self.scan["energies_eV"])
@@ -1070,6 +1124,7 @@ class ScanWorker(QThread):
                      "hdf5_compression": DEFAULTS.get("hdf5_compression", "gzip"),
                      "hdf5_gzip_level": DEFAULTS.get("hdf5_gzip_level", 3)}
         master = MasterH5(master_path, scan_meta)
+        self._status.info(file=master_path, iteration=iter_idx)
 
         try:
             self.log.emit(f"Master file: {master_path}")
@@ -1104,6 +1159,8 @@ class ScanWorker(QThread):
             if energies_eV:
                 start_e = energies_eV[0]
                 self.log.emit(f"Warming mono to {start_e:.2f} eV…")
+                self._status.activity(f"moving mono to start energy "
+                                      f"{start_e:.2f} eV")
                 t_warm = time.time()
                 self._wait_mono_reach(start_e, timeout=180.0)
                 self.log.emit(f"Warmup done in {time.time() - t_warm:.1f}s")
@@ -1136,6 +1193,11 @@ class ScanWorker(QThread):
 
                 t0 = time.time()
                 self.log.emit(f"[{i}/{total}] E = {e_eV:.2f} eV")
+                iter_txt = (f", iteration {iter_idx}/{total_iters}"
+                            if total_iters > 1 else "")
+                self._status.step(global_offset + i - 1, global_total,
+                                  f"{e_eV / 1000.0:.4f} keV ({i}/{total}"
+                                  f"{iter_txt})")
 
                 tE = time.time()
                 self._set_energy(e_eV)
@@ -1246,6 +1308,9 @@ class ScanWorker(QThread):
                                      self.params["motor_settle_s"])
 
                 self.progress.emit(global_offset + i, global_total)
+                self._status.step(global_offset + i, global_total,
+                                  f"{e_eV / 1000.0:.4f} keV done ({i}/{total}"
+                                  f"{iter_txt})")
                 step_total = time.time() - t0
                 self.log.emit(
                     f"    step {step_total:.2f}s  "
@@ -1260,6 +1325,8 @@ class ScanWorker(QThread):
                 every = int(self.params.get("qgmax_every_n", 0) or 0)
                 if every > 0 and i % every == 0 and i < total:
                     self.log.emit(f"    QGMax trigger: step {i} (every {every})")
+                    self._status.activity(f"QGMax optimisation after "
+                                          f"energy {i}/{total}")
                     self._run_qgmax()
                 elif every > 0:
                     # Help diagnose "no trigger" complaints.

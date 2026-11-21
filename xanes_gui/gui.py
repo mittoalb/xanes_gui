@@ -6,6 +6,7 @@ import time
 import signal
 import subprocess
 import json
+import re
 import numpy as np
 import pvaccess as pva
 import epics
@@ -346,6 +347,30 @@ class CalibrationWorker(QThread):
         except Exception as ex:
             self.error.emit(f"ERROR (calibrate): {ex}")
 
+# Scan status for the shared beamline registry (Agents panel, Slack bot).
+# This file runs both as a script and as xanes_gui.gui — try both import
+# forms; never fail.
+try:
+    from .scan_status import ScanStatus
+except ImportError:
+    try:
+        from scan_status import ScanStatus
+    except ImportError:
+        ScanStatus = None
+
+
+class _NoScanStatus:
+    """Stand-in when status publishing is unavailable."""
+    def __getattr__(self, _name):
+        return lambda *a, **k: None
+
+
+# "[INFO] Custom energy range: 8.3000 - 8.4000 keV" (custom energies) or
+# "[INFO] Calculated 41 points from PVs: 8.3000 - 8.4000 keV (step: …)"
+_RE_NPTS   = re.compile(r"(\d+) points")
+_RE_ERANGE = re.compile(r"([\d.]+)\s*-\s*([\d.]+)\s*keV")
+
+
 class StartScriptWorker(QThread):
     """Thread to run the XANES script locally or via SSH in embedded terminal.
 
@@ -365,6 +390,27 @@ class StartScriptWorker(QThread):
         self._stop_requested = False
         self._proc = None
         self._proc_pgid = None
+        self._status = _NoScanStatus()     # real one made in run()
+        self._last_status_t = 0.0
+
+    def _status_from_line(self, line):
+        """Feed one line of script output to the scan status: energy
+        count / range once they're printed, otherwise the latest line as
+        activity, at most every 2 s."""
+        if not line:
+            return
+        if line.startswith("[INFO]"):
+            m = _RE_NPTS.search(line)
+            if m:
+                self._status.info(n_energies=int(m.group(1)))
+            m = _RE_ERANGE.search(line)
+            if m:
+                self._status.info(energy_min_keV=float(m.group(1)),
+                                  energy_max_keV=float(m.group(2)))
+        now = time.time()
+        if now - self._last_status_t >= 2.0:
+            self._last_status_t = now
+            self._status.activity(line[:200])
 
     def stop(self):
         self._stop_requested = True
@@ -435,6 +481,7 @@ class StartScriptWorker(QThread):
             if self._stop_requested:
                 break
             self.log.emit(line.rstrip())
+            self._status_from_line(line.strip())
         rc = self._proc.wait()
         if rc == 0:
             self.log.emit("Script completed successfully")
@@ -473,13 +520,34 @@ class StartScriptWorker(QThread):
         while not self._stop_requested and time.time() < deadline:
             time.sleep(min(0.5, max(0.0, deadline - time.time())))
 
+    def _make_status(self):
+        if ScanStatus is None:
+            return _NoScanStatus()
+        try:
+            return ScanStatus(
+                "XANES 1D",
+                total=self.repeat_count if self.repeat_count > 1 else None,
+                host=self.remote_config.get("remote_host"),
+                script=self.remote_config.get("script_name"),
+                repeat_count=self.repeat_count,
+                via="tomoscan energy (32id:TomoScan:)",
+            )
+        except Exception:
+            return _NoScanStatus()
+
     def run(self):
+        self._status = self._make_status()
         try:
             last_rc = 0
             for iter_idx in range(1, self.repeat_count + 1):
                 if self._stop_requested:
                     break
                 self.repeat_progress.emit(iter_idx, self.repeat_count)
+                if self.repeat_count > 1:
+                    self._status.step(iter_idx - 1, self.repeat_count,
+                                      f"iteration {iter_idx}/{self.repeat_count}")
+                else:
+                    self._status.activity("running energy scan")
                 if self.repeat_count > 1:
                     self.log.emit(
                         f"=== Iteration {iter_idx}/{self.repeat_count} ==="
@@ -497,12 +565,24 @@ class StartScriptWorker(QThread):
                 will_wait = time.time() < deadline
                 if will_wait:
                     self._set_shutter(False)
+                    self._status.activity(
+                        f"waiting until iteration {iter_idx + 1}/"
+                        f"{self.repeat_count} starts")
                 self._wait_until_next_iter(deadline)
                 if will_wait and not self._stop_requested:
                     self._set_shutter(True)
+            if self._stop_requested:
+                self._status.aborted()
+            elif last_rc == 0:
+                self._status.finish(
+                    f"{self.repeat_count} iteration(s) finished"
+                    if self.repeat_count > 1 else "finished")
+            else:
+                self._status.error(f"script exited with code {last_rc}")
             self.finished.emit(last_rc)
 
         except Exception as ex:
+            self._status.error(f"ERROR: {ex}")
             self.error.emit(f"ERROR: {str(ex)}")
 
 # -------------------------
