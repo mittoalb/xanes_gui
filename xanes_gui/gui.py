@@ -369,6 +369,11 @@ class _NoScanStatus:
 # "[INFO] Calculated 41 points from PVs: 8.3000 - 8.4000 keV (step: …)"
 _RE_NPTS   = re.compile(r"(\d+) points")
 _RE_ERANGE = re.compile(r"([\d.]+)\s*-\s*([\d.]+)\s*keV")
+# tomoscan energy logs "energy 8333.000 eV" when it starts each energy and
+# "energy scan time: …" when all are done (log lines may carry ANSI colours)
+_RE_ANSI    = re.compile(r"\x1b\[[0-9;]*m")
+_RE_E_START = re.compile(r"\benergy\s+([\d.]+)\s*eV\b")
+_RE_E_DONE  = re.compile(r"energy scan time")
 
 
 class StartScriptWorker(QThread):
@@ -381,6 +386,8 @@ class StartScriptWorker(QThread):
     finished = pyqtSignal(int)  # exit code of the last iteration
     error = pyqtSignal(str)
     repeat_progress = pyqtSignal(int, int)  # (iter_idx 1-based, repeat_count)
+    # energies finished, total energies over all iterations (0 = unknown)
+    scan_progress = pyqtSignal(int, int)
 
     def __init__(self, remote_config=None, repeat_count=1, repeat_interval_s=0.0):
         super().__init__()
@@ -392,6 +399,34 @@ class StartScriptWorker(QThread):
         self._proc_pgid = None
         self._status = _NoScanStatus()     # real one made in run()
         self._last_status_t = 0.0
+        self._n_energies = 0               # from the script's "[INFO] N points"
+        self._iter = 1
+        self._k = 0                        # energies started in this iteration
+
+    def _energy_progress(self, line):
+        """Energy n/N from tomoscan's output → progress bar + scan status."""
+        n = self._n_energies
+        total = n * self.repeat_count
+        m = _RE_E_START.search(line)
+        if m:
+            self._k += 1
+            done = (self._iter - 1) * n + self._k - 1
+            self.scan_progress.emit(done, total)
+            e_kev = float(m.group(1)) / 1000.0
+            txt = f"{e_kev:.4f} keV ({self._k}/{n or '?'}"
+            if self.repeat_count > 1:
+                txt += f", iteration {self._iter}/{self.repeat_count}"
+            if total:
+                self._status.step(done, total, txt + ")")
+            else:
+                self._status.activity(txt + ")")
+            return True
+        if _RE_E_DONE.search(line) and n:
+            done = self._iter * n
+            self.scan_progress.emit(done, total)
+            self._status.step(done, total, f"iteration {self._iter} done")
+            return True
+        return False
 
     def _status_from_line(self, line):
         """Feed one line of script output to the scan status: energy
@@ -399,9 +434,15 @@ class StartScriptWorker(QThread):
         activity, at most every 2 s."""
         if not line:
             return
+        line = _RE_ANSI.sub("", line)
+        if self._energy_progress(line):
+            return
         if line.startswith("[INFO]"):
             m = _RE_NPTS.search(line)
             if m:
+                self._n_energies = int(m.group(1))
+                self.scan_progress.emit((self._iter - 1) * self._n_energies,
+                                        self._n_energies * self.repeat_count)
                 self._status.info(n_energies=int(m.group(1)))
             m = _RE_ERANGE.search(line)
             if m:
@@ -543,6 +584,7 @@ class StartScriptWorker(QThread):
                 if self._stop_requested:
                     break
                 self.repeat_progress.emit(iter_idx, self.repeat_count)
+                self._iter, self._k = iter_idx, 0
                 if self.repeat_count > 1:
                     self._status.step(iter_idx - 1, self.repeat_count,
                                       f"iteration {iter_idx}/{self.repeat_count}")
@@ -1590,6 +1632,7 @@ class XANESGui(QMainWindow):
         self.btn_calibrate.setEnabled(False)
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
+        self.progress.setFormat("%p%")
         self.progress.setMaximum(npts)
         self.progress.setValue(0)
 
@@ -1771,8 +1814,9 @@ class XANESGui(QMainWindow):
         self.btn_start.setEnabled(False)
         self.btn_calibrate.setEnabled(True)
         self.btn_stop.setEnabled(True)
-        self.progress.setValue(0)
-        self.progress.setMaximum(100)
+        self.progress.setRange(0, 0)       # busy until the energy count is known
+        self.progress.setFormat("%v/%m energies")
+        self._scan_stopped = False
 
         # Build remote configuration
         remote_config = {
@@ -1817,6 +1861,7 @@ class XANESGui(QMainWindow):
         )
         self._start_worker.log.connect(self.log)
         self._start_worker.repeat_progress.connect(self.on_repeat_progress)
+        self._start_worker.scan_progress.connect(self.on_scan_progress)
         self._start_worker.finished.connect(self.on_start_finished)
         self._start_worker.error.connect(self.on_start_error)
         self._start_worker.start()
@@ -1828,17 +1873,45 @@ class XANESGui(QMainWindow):
                 self.log("QGMax automated mode DISABLED")
             self._qgmax_auto_enabled = False
 
+    @pyqtSlot(int, int)
+    def on_scan_progress(self, done, total):
+        if total > 0:
+            self.progress.setRange(0, total)
+            self.progress.setValue(min(done, total))
+
+    def _progress_end(self, text, full=False):
+        """Leave the bar showing how the scan ended (not reset to 0)."""
+        if self.progress.maximum() == 0:          # energy count never seen
+            self.progress.setRange(0, 1)
+            self.progress.setValue(1 if full else 0)
+            self.progress.setFormat(text)
+            return
+        if full:
+            self.progress.setValue(self.progress.maximum())
+        self.progress.setFormat(f"{text} — %v/%m energies")
+
     def on_start_finished(self, exit_code):
         """Handle start script completion."""
         self._disable_qgmax_auto_if_enabled()
-        self.reset_buttons()
+        now = time.strftime("%H:%M")
+        if getattr(self, "_scan_stopped", False):
+            self._progress_end(f"Stopped {now}")
+        elif exit_code == 0:
+            self._progress_end(f"Finished {now}", full=True)
+            self.log("=" * 60)
+            self.log(f"XANES scan FINISHED at {time.strftime('%H:%M:%S')}")
+            self.log("=" * 60)
+        else:
+            self._progress_end(f"Failed (exit {exit_code}) {now}")
+        self.reset_buttons(keep_progress=True)
 
     def on_start_error(self, error):
         """Handle start script error."""
         self.log(error)
         self._disable_qgmax_auto_if_enabled()
+        self._progress_end(f"Error {time.strftime('%H:%M')}")
         QMessageBox.critical(self, "Start error", error)
-        self.reset_buttons()
+        self.reset_buttons(keep_progress=True)
 
     def on_stop(self):
         """Stop running operations."""
@@ -1848,7 +1921,9 @@ class XANESGui(QMainWindow):
             self._calib_worker.wait()
 
         # Stop start script worker
-        if self._start_worker and self._start_worker.isRunning():
+        scan_running = bool(self._start_worker and self._start_worker.isRunning())
+        if scan_running:
+            self._scan_stopped = True
             self._start_worker.stop()
             self._start_worker.wait()
 
@@ -1863,14 +1938,19 @@ class XANESGui(QMainWindow):
         except Exception as ex:
             self.log(f"NOTE: safety PVs not touched or unavailable: {ex}")
 
-        self.reset_buttons()
+        if scan_running:
+            self._progress_end(f"Stopped {time.strftime('%H:%M')}")
+        self.reset_buttons(keep_progress=scan_running)
 
-    def reset_buttons(self):
+    def reset_buttons(self, keep_progress=False):
         """Reset button states."""
         self.btn_stop.setEnabled(False)
         self.btn_start.setEnabled(True)
         self.btn_calibrate.setEnabled(True)
-        self.progress.setValue(0)
+        if not keep_progress:
+            self.progress.setFormat("%p%")
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
 
     # ---------- PV Tab Helpers ----------
     def browse_curve_dir(self, widget, label):

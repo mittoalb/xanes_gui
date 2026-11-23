@@ -1909,6 +1909,7 @@ class Xanes2DGui(QMainWindow):
         rep_n = int(params.get("repeat_count", 1) or 1)
         self.progress.setMaximum(len(scan["energies_eV"]) * rep_n)
         self.progress.setValue(0)
+        self.progress.setFormat("%v/%m energies")
         self.repeat_status.setText("")
         self.btn_start.setEnabled(False)
         self.btn_dry.setEnabled(False)
@@ -1938,11 +1939,21 @@ class Xanes2DGui(QMainWindow):
 
     def _on_error(self, msg):
         self.log(msg)
+        self.progress.setFormat(f"Error {time.strftime('%H:%M')} — %v/%m energies")
         QMessageBox.critical(self, "Scan error", msg)
         self._reset_buttons()
 
     def _on_done(self, master_path):
-        self.log(f"Scan complete: {master_path}")
+        now = time.strftime("%H:%M")
+        if self._worker is not None and self._worker._stop:
+            self.progress.setFormat(f"Stopped {now} — %v/%m energies")
+            self.log(f"Scan stopped: {master_path}")
+        else:
+            self.progress.setValue(self.progress.maximum())
+            self.progress.setFormat(f"Finished {now} — %v/%m energies")
+            self.log("=" * 60)
+            self.log(f"XANES 2D scan FINISHED at {time.strftime('%H:%M:%S')}: {master_path}")
+            self.log("=" * 60)
         self._reset_buttons()
 
     def _reset_buttons(self):
